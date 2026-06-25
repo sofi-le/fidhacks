@@ -20,18 +20,16 @@ import {
   getAllCards,
   getSkillsSeen,
   getBalance,
-  getSkillMemory,
   resetDemo,
 } from "./db.js";
 import { draftCard, useMock } from "./extract.js";
-import { judge } from "./rarity.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, mock: useMock(), model: process.env.GEMINI_MODEL || "gemini-2.5-flash" });
+  res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
 });
 
 // The loop: transcript + memory -> AI draft -> deterministic rarity/callback -> save -> Card
@@ -44,14 +42,10 @@ app.post("/api/extract", async (req, res) => {
     const recentCards = getRecentCards(12);
     const skillsSeen = getSkillsSeen();
 
-    // 1) AI drafts the human-sounding fields
+    // AI drafts the card fields
     const draft = await draftCard(transcript, { recentCards, skillsSeen });
 
-    // 2) judge rarity + callback deterministically against memory (read BEFORE saving)
-    const skillMem = getSkillMemory(draft.skill);
-    const { rarity, callback } = judge(draft, transcript, skillMem, recentCards);
-
-    // 3) assemble the frozen Card and persist (episodic + semantic, atomic)
+    // assemble the Card and persist (episodic + semantic, atomic)
     const card = {
       id: randomUUID(),
       timestamp: new Date().toISOString(),
@@ -59,9 +53,6 @@ app.post("/api/extract", async (req, res) => {
       win: draft.win,
       overcame: draft.overcame,
       skill: draft.skill,
-      emotion: draft.emotion,
-      rarity,
-      callback,
     };
     saveCard(card);
 
@@ -89,5 +80,5 @@ app.post("/api/reset", (_req, res) => {
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
   console.log(`Proof-of-Skill Ledger backend on http://localhost:${PORT}`);
-  console.log(`  mode: ${useMock() ? "MOCK (no AI)" : "LIVE (Gemini)"}`);
+  console.log(`  mode: ${useMock() ? "MOCK (no AI)" : "LIVE (Claude)"}`);
 });

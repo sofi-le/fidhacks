@@ -4,8 +4,6 @@
 // ============================================================================
 
 export type CardType = "Academic" | "Technical" | "Financial" | "Social" | "Hobbies";
-export type Emotion  = "stuck" | "breakthrough" | "steady" | "proud" | "anxious";
-export type Rarity   = "Common" | "Rare" | "Epic" | "Legendary";
 
 export interface Card {
   id: string;             // uuid
@@ -14,12 +12,9 @@ export interface Card {
   win: string;            // one-line accomplishment (AI-written, human-sounding)
   overcame: string;       // the struggle behind it (AI-written)
   skill: string;          // what it proves (tag) — also the semantic-memory key
-  emotion: Emotion;       // how it felt → aura/glow (SEPARATE channel from type)
-  rarity: Rarity;         // difficulty defeated, judged against memory
-  callback: string | null; // references the past self, or null if none
 }
 
-// Semantic memory: one row per distinct skill ever seen. Powers rarity.
+// Semantic memory: one row per distinct skill ever seen.
 export interface SkillSeen {
   skill: string;
   first_date: string;     // ISO — when this skill first appeared

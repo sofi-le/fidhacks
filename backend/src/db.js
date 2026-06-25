@@ -25,10 +25,7 @@ db.exec(`
     type      TEXT NOT NULL,
     win       TEXT NOT NULL,
     overcame  TEXT NOT NULL,
-    skill     TEXT NOT NULL,
-    emotion   TEXT NOT NULL,
-    rarity    TEXT NOT NULL,
-    callback  TEXT
+    skill     TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS skills_seen (
@@ -43,8 +40,8 @@ db.exec(`
 // --- prepared statements ----------------------------------------------------
 
 const insertCard = db.prepare(`
-  INSERT INTO cards (id, timestamp, type, win, overcame, skill, emotion, rarity, callback)
-  VALUES (@id, @timestamp, @type, @win, @overcame, @skill, @emotion, @rarity, @callback)
+  INSERT INTO cards (id, timestamp, type, win, overcame, skill)
+  VALUES (@id, @timestamp, @type, @win, @overcame, @skill)
 `);
 
 const upsertSkill = db.prepare(`

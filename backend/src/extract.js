@@ -1,39 +1,32 @@
 // ============================================================================
-// The extraction brain (build plan §10.4) — powered by Google Gemini.
+// The extraction brain — powered by Claude.
 //
 // transcript + memory (recent cards + skills_seen) -> strict JSON Card.
-// The model writes the human-sounding fields (win/overcame/type/emotion/skill);
-// rarity.js is the deterministic judge that finalizes rarity + callback.
+// The model writes the human-sounding fields (type/win/overcame/skill).
 //
-// We use Gemini's native responseSchema (JSON mode) so the output is structured
+// We use Claude's native structured outputs (JSON mode) so the output is shaped
 // by the API, not by prompt-begging. MOCK_MODE=1 (or a missing key) skips the
 // network entirely and mints a deterministic card, so blocked venue wifi can't
 // kill the demo.
 // ============================================================================
 
-import { GoogleGenAI, Type } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 
 const TYPES = ["Academic", "Technical", "Financial", "Social", "Hobbies"];
-const EMOTIONS = ["stuck", "breakthrough", "steady", "proud", "anxious"];
-const RARITIES = ["Common", "Rare", "Epic", "Legendary"];
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const useMock = () => process.env.MOCK_MODE === "1" || !process.env.GEMINI_API_KEY;
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+const useMock = () => process.env.MOCK_MODE === "1" || !process.env.ANTHROPIC_API_KEY;
 
 let client = null;
-function gemini() {
-  if (!client) client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function anthropic() {
+  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   return client;
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  TEAMMATE INJECTION SEAM — the card-field / voice-bucketing prompt.        ║
-// ║  Replace SYSTEM and RESPONSE_SCHEMA below with your engineered versions.   ║
-// ║  CONTRACT (do not change): draftCard() must return an object with exactly  ║
-// ║  { type, win, overcame, skill, emotion, rarity, callback } — sanitize()    ║
-// ║  clamps them to the frozen enums. My memory store + rarity judge consume   ║
-// ║  that object and finalize rarity/callback; leave that wiring alone.        ║
-// ║  This prompt is a working PLACEHOLDER so the demo runs today.              ║
+// ║  Card-field / voice-bucketing prompt.                                      ║
+// ║  CONTRACT: draftCard() returns exactly { type, win, overcame, skill } —    ║
+// ║  sanitize() clamps them. The memory store consumes that object.            ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 const SYSTEM = `You turn a spoken micro-win into one trading card for a "Proof-of-Skill Ledger".
 You receive a transcript of someone describing something they just did, plus their memory
@@ -45,31 +38,24 @@ Field guidance:
 - overcame: ONE line. The honest struggle behind it. Not corny, no LinkedIn voice.
 - skill:    1-3 words. The reusable skill this proves. REUSE the exact wording of a prior
             skill from memory if it's the same skill, so the skill tag stays stable.
-- emotion:  how it FELT, not how hard it was. A Technical win can feel "anxious".
-- rarity:   your first guess; the server may adjust it against memory.
-- callback: if this win echoes a past struggle in their memory, ONE line referencing their
-            past self ("3 weeks ago this would've stopped you"); otherwise null.
 
 Write like a supportive friend. No emojis. No exclamation spam.`;
 
 const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
+  type: "object",
+  additionalProperties: false,
   properties: {
-    type: { type: Type.STRING, enum: TYPES },
-    win: { type: Type.STRING },
-    overcame: { type: Type.STRING },
-    skill: { type: Type.STRING },
-    emotion: { type: Type.STRING, enum: EMOTIONS },
-    rarity: { type: Type.STRING, enum: RARITIES },
-    callback: { type: Type.STRING, nullable: true },
+    type:     { type: "string", enum: TYPES },
+    win:      { type: "string" },
+    overcame: { type: "string" },
+    skill:    { type: "string" },
   },
-  required: ["type", "win", "overcame", "skill", "emotion", "rarity"],
-  propertyOrdering: ["type", "win", "overcame", "skill", "emotion", "rarity", "callback"],
+  required: ["type", "win", "overcame", "skill"],
 };
 
 /**
- * Ask Gemini to draft a card from the transcript + memory.
- * Returns a partial card: { type, win, overcame, skill, emotion, rarity, callback }.
+ * Ask Claude to draft a card from the transcript + memory.
+ * Returns a partial card: { type, win, overcame, skill }.
  * Never throws — falls back to a mock so the endpoint always returns something.
  */
 export async function draftCard(transcript, { recentCards = [], skillsSeen = [] } = {}) {
@@ -77,30 +63,30 @@ export async function draftCard(transcript, { recentCards = [], skillsSeen = [] 
 
   try {
     const memory = buildMemoryBlock(recentCards, skillsSeen);
-    const res = await gemini().models.generateContent({
-      model: MODEL,
-      contents: `MEMORY:\n${memory}\n\nTRANSCRIPT:\n"""${transcript}"""\n\nReturn the card.`,
-      config: {
-        systemInstruction: SYSTEM,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-        maxOutputTokens: 800,
+    const res = await anthropic().messages.create(
+      {
+        model: MODEL,
+        max_tokens: 800,
         temperature: 0.7,
-        // gemini-2.5-flash is a thinking model; left on, reasoning tokens can eat the
-        // whole budget and return empty text. This extraction is simple — turn it off
-        // for speed + reliable JSON. (Bump the budget instead if you want richer cards.)
-        thinkingConfig: { thinkingBudget: 0 },
+        system: SYSTEM,
+        messages: [
+          { role: "user", content: `MEMORY:\n${memory}\n\nTRANSCRIPT:\n"""${transcript}"""\n\nReturn the card.` },
+        ],
+        // native structured outputs (beta) — guarantees the response matches RESPONSE_SCHEMA
+        output_format: { type: "json_schema", schema: RESPONSE_SCHEMA },
       },
-    });
-    const parsed = safeParse(res.text);
+      { headers: { "anthropic-beta": "structured-outputs-2025-11-13" } }
+    );
+
+    const textBlock = res.content.find((b) => b.type === "text");
+    const parsed = safeParse(textBlock?.text);
     if (!parsed) {
-      console.warn("[extract] empty/unparseable Gemini response, using mock. finish=" +
-        res.candidates?.[0]?.finishReason);
+      console.warn("[extract] empty/unparseable Claude response, using mock. stop=" + res.stop_reason);
       return mockDraft(transcript);
     }
     return sanitize(parsed);
   } catch (err) {
-    console.error("[extract] Gemini call failed, falling back to mock:", err.message);
+    console.error("[extract] Claude call failed, falling back to mock:", err.message);
     return mockDraft(transcript);
   }
 }
@@ -114,7 +100,7 @@ function buildMemoryBlock(recentCards, skillsSeen) {
   const recent = recentCards.length
     ? recentCards
         .slice(0, 8)
-        .map((c) => `- [${c.timestamp.slice(0, 10)}] ${c.type}/${c.skill} (${c.emotion}, ${c.rarity}): ${c.win}`)
+        .map((c) => `- [${c.timestamp.slice(0, 10)}] ${c.type}/${c.skill}: ${c.win}`)
         .join("\n")
     : "(no cards yet)";
   return `Skills seen before:\n${skills}\n\nRecent cards:\n${recent}`;
@@ -140,17 +126,11 @@ function safeParse(raw) {
 function sanitize(d) {
   const oneLine = (s, fallback) =>
     (typeof s === "string" && s.trim() ? s.trim() : fallback).replace(/\s+/g, " ").slice(0, 240);
-  // models sometimes emit the literal word "null"/"none" instead of real null
-  const NULLISH = new Set(["null", "none", "n/a", "na", "undefined", ""]);
-  const cb = typeof d?.callback === "string" ? d.callback.trim() : "";
   return {
     type: TYPES.includes(d?.type) ? d.type : "Technical",
     win: oneLine(d?.win, "Logged a win."),
     overcame: oneLine(d?.overcame, "Pushed through something tricky."),
     skill: oneLine(d?.skill, "General"),
-    emotion: EMOTIONS.includes(d?.emotion) ? d.emotion : "steady",
-    rarity: RARITIES.includes(d?.rarity) ? d.rarity : "Common",
-    callback: cb && !NULLISH.has(cb.toLowerCase()) ? cb : null,
   };
 }
 
@@ -164,21 +144,13 @@ function mockDraft(transcript) {
     /budget|money|invest|save|spend|stock/.test(t) ? "Financial" :
     /pitch|team|talk|present|met|friend|call/.test(t) ? "Social" :
     /draw|paint|guitar|run|cook|game|sketch/.test(t) ? "Hobbies" : "Technical";
-  const emotion =
-    /finally|clicked|got it|breakthrough/.test(t) ? "breakthrough" :
-    /stuck|couldn'?t|failing|frustrat/.test(t) ? "stuck" :
-    /nervous|scared|anxious|afraid/.test(t) ? "anxious" :
-    /proud|nailed|happy/.test(t) ? "proud" : "steady";
   const firstSentence = (transcript || "Logged a win.").split(/[.!?\n]/)[0].trim().slice(0, 160);
   return sanitize({
     type,
     win: firstSentence || "Logged a win.",
     overcame: "Worked through it step by step.",
     skill: type === "Technical" ? "Debugging" : "General",
-    emotion,
-    rarity: "Common",
-    callback: null,
   });
 }
 
-export { TYPES, EMOTIONS, useMock };
+export { TYPES, useMock };
