@@ -2,7 +2,7 @@
 // SQLite memory store — the core of the project (build plan §6).
 //
 //   cards        = EPISODIC memory  (every micro-win, timestamped)
-//   skills_seen  = SEMANTIC memory  (skill, first_date, count) -> powers RARITY
+//   skills_seen  = SEMANTIC memory  (skill, first_date, count)
 //
 // Single local file, no cloud, no accounts. Synchronous better-sqlite3 keeps
 // the code dead simple for a hackathon.
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, "..", "memory.db");
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL"); // safer concurrent reads during the demo
+db.pragma("journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS cards (
@@ -62,25 +62,12 @@ const selectAllSkills = db.prepare(`
   SELECT skill, first_date, count FROM skills_seen ORDER BY count DESC, first_date ASC
 `);
 
-const selectSkill = db.prepare(`
-  SELECT skill, first_date, count FROM skills_seen WHERE skill = ?
-`);
-
 // --- public API -------------------------------------------------------------
-
-/**
- * Look up what we already know about a skill BEFORE minting a card.
- * Returns the SkillSeen row, or null if this skill is brand new.
- * The rarity logic uses this to decide "is this a first?".
- */
-export function getSkillMemory(skill) {
-  return selectSkill.get(skill) ?? null;
-}
 
 /**
  * Insert a card AND bump its skill in semantic memory, atomically.
  * If either write fails, neither lands — episodic and semantic memory
- * never drift apart. (build plan §10.3)
+ * never drift apart.
  */
 export const saveCard = db.transaction((card) => {
   insertCard.run(card);
@@ -91,6 +78,14 @@ export const saveCard = db.transaction((card) => {
 /** Most recent N cards — fed into the AI prompt as episodic memory. */
 export function getRecentCards(limit = 12) {
   return selectRecentCards.all(limit);
+}
+
+/** Cards within a period ("week" | "month" | "all"), newest first. Feeds the recap. */
+export function getCardsInPeriod(period = "all", limit = 50) {
+  const since = periodStartISO(period);
+  return since
+    ? db.prepare(`SELECT * FROM cards WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?`).all(since, limit)
+    : db.prepare(`SELECT * FROM cards ORDER BY timestamp DESC LIMIT ?`).all(limit);
 }
 
 /** Full binder, newest first. */
