@@ -10,6 +10,7 @@
     "seed": "node src/seed.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.106.0",
     "@google/genai": "^2.10.0",
     "better-sqlite3": "^12.4.1",
     "cors": "^2.8.5",

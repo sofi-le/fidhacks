@@ -5,10 +5,7 @@
     "type": "Technical",
     "win": "Got the SQLite memory store saving cards and skills in one atomic write.",
     "overcame": "Kept corrupting the skills table on insert until I wrapped both writes in a transaction.",
-    "skill": "SQLite transactions",
-    "emotion": "breakthrough",
-    "rarity": "Epic",
-    "callback": null
+    "skill": "SQLite transactions"
   },
   {
     "id": "22222222-2222-4222-8222-222222222222",
@@ -16,10 +13,7 @@
     "type": "Technical",
     "win": "Wired the Express backend to talk to the Anthropic API and return clean Card JSON.",
     "overcame": "The model kept wrapping JSON in prose — fixed it by forcing a JSON-only system prompt.",
-    "skill": "API integration",
-    "emotion": "proud",
-    "rarity": "Rare",
-    "callback": null
+    "skill": "API integration"
   },
   {
     "id": "33333333-3333-4333-8333-333333333333",
@@ -27,10 +21,7 @@
     "type": "Academic",
     "win": "Finally understood how eigenvectors fall out of the covariance matrix in PCA.",
     "overcame": "Stared at the linear algebra for two hours before the geometric picture clicked.",
-    "skill": "Linear algebra",
-    "emotion": "breakthrough",
-    "rarity": "Rare",
-    "callback": null
+    "skill": "Linear algebra"
   },
   {
     "id": "44444444-4444-4444-8444-444444444444",
@@ -38,21 +29,15 @@
     "type": "Social",
     "win": "Pitched our concept to the team and got everyone aligned on the trading-card idea.",
     "overcame": "I was nervous to push back on the leaderboard idea, but I made the case anyway.",
-    "skill": "Public speaking",
-    "emotion": "anxious",
-    "rarity": "Common",
-    "callback": null
+    "skill": "Public speaking"
   },
   {
     "id": "55555555-5555-4555-8555-555555555555",
     "timestamp": "2026-06-24T09:15:00.000Z",
     "type": "Technical",
-    "win": "Built the rarity logic that ranks a win by how new the skill is to my history.",
-    "overcame": "Had to design the semantic-memory table before the scoring made any sense.",
-    "skill": "Data modeling",
-    "emotion": "steady",
-    "rarity": "Rare",
-    "callback": null
+    "win": "Built the type-bucketing logic that sorts a win into its life domain.",
+    "overcame": "Had to design the semantic-memory table before the sorting made any sense.",
+    "skill": "Data modeling"
   },
   {
     "id": "66666666-6666-4666-8666-666666666666",
@@ -60,10 +45,7 @@
     "type": "Academic",
     "win": "Debugged the linear-algebra bug in the radar chart math on my own.",
     "overcame": "Same matrix math that stopped me cold yesterday — this time I just fixed it.",
-    "skill": "Linear algebra",
-    "emotion": "proud",
-    "rarity": "Common",
-    "callback": "Yesterday this exact linear algebra took you two hours. Today it took ten minutes."
+    "skill": "Linear algebra"
   },
   {
     "id": "77777777-7777-4777-8777-777777777777",
@@ -71,10 +53,7 @@
     "type": "Financial",
     "win": "Set up a simple budget to track the team's snack and supply spend for the weekend.",
     "overcame": "Never tracked a shared budget before — wasn't sure how to split shared costs.",
-    "skill": "Budgeting",
-    "emotion": "steady",
-    "rarity": "Rare",
-    "callback": null
+    "skill": "Budgeting"
   },
   {
     "id": "88888888-8888-4888-8888-888888888888",
@@ -82,10 +61,7 @@
     "type": "Hobbies",
     "win": "Sketched the card-back art for the binder during a break and people loved it.",
     "overcame": "Hadn't drawn in months and almost didn't share it.",
-    "skill": "Illustration",
-    "emotion": "proud",
-    "rarity": "Common",
-    "callback": null
+    "skill": "Illustration"
   },
   {
     "id": "99999999-9999-4999-8999-999999999999",
@@ -93,9 +69,6 @@
     "type": "Technical",
     "win": "Shipped the whole memory + extraction pipeline end to end before midnight.",
     "overcame": "Three hours of CORS and JSON-parse errors that nearly broke the demo.",
-    "skill": "Debugging",
-    "emotion": "breakthrough",
-    "rarity": "Legendary",
-    "callback": null
+    "skill": "Debugging"
   }
 ]
