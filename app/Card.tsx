@@ -72,15 +72,18 @@ export default function Card({
     fontWeight: 700,
     flex: "0 0 auto",
   };
+  const hasArt = !!c.image;
   const artStyle: React.CSSProperties = {
     height: artH + "px",
     borderRadius: rad - 6 + "px",
-    background:
-      "repeating-linear-gradient(45deg, " + t.fill + ", " + t.fill + " 7px, " + t.soft + " 7px, " + t.soft + " 14px)",
-    border: "1px dashed " + t.deep + "7a",
+    background: hasArt
+      ? "#fff"
+      : "repeating-linear-gradient(45deg, " + t.fill + ", " + t.fill + " 7px, " + t.soft + " 7px, " + t.soft + " 14px)",
+    border: hasArt ? "1px solid " + t.deep + "55" : "1px dashed " + t.deep + "7a",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   };
   const artLabelStyle: React.CSSProperties = {
     fontFamily: '"Space Mono", monospace',
@@ -137,7 +140,12 @@ export default function Card({
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</span>
       </div>
       <div style={artStyle}>
-        <span style={artLabelStyle}>card art</span>
+        {hasArt ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={c.image} alt="card art" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <span style={artLabelStyle}>card art</span>
+        )}
       </div>
       <div style={nameStyle}>{c.skill || ""}</div>
       <div style={winStyle}>{c.win || ""}</div>

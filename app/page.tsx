@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import Card from "./Card";
-import { getCards, extractCard, deleteCardApi, UiCard } from "./lib/api";
+import { getCards, extractCard, deleteCardApi, updateCardApi, UiCard } from "./lib/api";
 
 const TYPES: Record<string, { label: string; fill: string; deep: string; ink: string }> = {
   academic: { label: "Academic", fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
@@ -51,6 +51,13 @@ type S = {
   recording: boolean;
   summarizing: boolean;
   justAdded: boolean;
+  editing: boolean;
+  editSkill: string;
+  editWin: string;
+  editOvercame: string;
+  editType: string;
+  editImage: string | undefined;
+  savingEdit: boolean;
 };
 
 // Minimal shape of the Web Speech API we use (it isn't in the TS DOM lib reliably).
@@ -103,6 +110,13 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     recording: false,
     summarizing: false,
     justAdded: false,
+    editing: false,
+    editSkill: "",
+    editWin: "",
+    editOvercame: "",
+    editType: "technical",
+    editImage: undefined,
+    savingEdit: false,
   };
 
   async loadCards() {
@@ -121,7 +135,98 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     try {
       await deleteCardApi(id);
     } catch {}
-    this.setState((st) => ({ cards: st.cards.filter((c) => c.id !== id), selectedId: null }));
+    this.setState((st) => ({ cards: st.cards.filter((c) => c.id !== id), selectedId: null, editing: false }));
+  }
+
+  // Drop into edit mode for the selected card, seeding the draft fields from it.
+  startEdit(card: UiCard) {
+    this.setState({
+      editing: true,
+      editSkill: card.skill,
+      editWin: card.win,
+      editOvercame: card.overcame,
+      editType: card.type,
+      editImage: card.image,
+    });
+  }
+
+  cancelEdit() {
+    this.setState({ editing: false });
+  }
+
+  // Read a picked image file, downscale it on a canvas (keeps the data URL small
+  // enough for SQLite), and stash it as the draft art.
+  onPickImage(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      this.fireToast("That's not an image file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 800;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          this.setState({ editImage: reader.result as string });
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        this.setState({ editImage: canvas.toDataURL("image/jpeg", 0.85) });
+      };
+      img.onerror = () => this.fireToast("Couldn't read that image");
+      img.src = reader.result as string;
+    };
+    reader.onerror = () => this.fireToast("Couldn't read that file");
+    reader.readAsDataURL(file);
+  }
+
+  async saveEdit() {
+    const id = this.state.selectedId;
+    if (!id || this.state.savingEdit) return;
+    const skill = this.state.editSkill.trim();
+    const win = this.state.editWin.trim();
+    if (!skill) {
+      this.fireToast("Give the card a title");
+      return;
+    }
+    if (!win) {
+      this.fireToast("Add a description");
+      return;
+    }
+    this.setState({ savingEdit: true });
+    const TYPE_LABEL: Record<string, string> = {
+      academic: "Academic",
+      technical: "Technical",
+      social: "Social",
+      hobbies: "Hobbies",
+      financial: "Financial",
+    };
+    try {
+      const updated = await updateCardApi(id, {
+        skill,
+        win,
+        overcame: this.state.editOvercame.trim(),
+        type: TYPE_LABEL[this.state.editType] || "Technical",
+        image: this.state.editImage ?? null,
+      });
+      this.setState((st) => ({
+        cards: st.cards.map((c) => (c.id === id ? updated : c)),
+        editing: false,
+        savingEdit: false,
+      }));
+      this.fireToast("Card updated ✓");
+    } catch {
+      this.setState({ savingEdit: false });
+      this.fireToast("Couldn't save — backend offline?");
+    }
   }
 
   toggleRecord() {
@@ -1030,19 +1135,142 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
         )}
 
         {/* DETAIL MODAL */}
-        {sel && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={() => this.setState({ selectedId: null })}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }} onClick={(e) => e.stopPropagation()}>
-              <Card card={sel} size="lg" />
-              <button
-                style={{ background: "#fffaf8", color: "#b0564a", border: "1.5px solid #e0b3aa", borderRadius: "11px", padding: "11px 24px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 8px 20px rgba(58,52,43,.18)" }}
-                onClick={() => { if (st.selectedId) this.deleteCard(st.selectedId); }}
-              >
-                Delete card
-              </button>
+        {sel && (() => {
+          const previewCard: UiCard = st.editing
+            ? { ...sel, skill: st.editSkill, win: st.editWin, overcame: st.editOvercame, type: st.editType, image: st.editImage }
+            : sel;
+          const closeModal = () => this.setState({ selectedId: null, editing: false });
+          const fieldLabelStyle: React.CSSProperties = {
+            fontFamily: "'Space Mono',monospace",
+            fontSize: "11px",
+            letterSpacing: "1px",
+            textTransform: "uppercase",
+            color: "#a59c8c",
+            marginBottom: "6px",
+          };
+          const fieldBoxStyle: React.CSSProperties = {
+            width: "100%",
+            boxSizing: "border-box",
+            background: "#fbf7ec",
+            border: "1.5px solid #e6dcc6",
+            borderRadius: "12px",
+            padding: "11px 13px",
+            fontFamily: "'Hanken Grotesk',sans-serif",
+            fontSize: "14px",
+            color: "#3a342b",
+            outline: "none",
+          };
+          return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={closeModal}>
+            <div style={{ display: "flex", flexDirection: st.editing ? "row" : "column", flexWrap: "wrap", alignItems: st.editing ? "flex-start" : "center", justifyContent: "center", gap: st.editing ? "26px" : "18px", maxHeight: "100%", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+              <Card card={previewCard} size="lg" />
+
+              {!st.editing && (
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button
+                    style={{ background: "#3a342b", color: "#fdf7e8", border: "none", borderRadius: "11px", padding: "11px 24px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 8px 20px rgba(58,52,43,.18)" }}
+                    onClick={() => this.startEdit(sel)}
+                  >
+                    Edit card
+                  </button>
+                  <button
+                    style={{ background: "#fffaf8", color: "#b0564a", border: "1.5px solid #e0b3aa", borderRadius: "11px", padding: "11px 24px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 8px 20px rgba(58,52,43,.18)" }}
+                    onClick={() => { if (st.selectedId) this.deleteCard(st.selectedId); }}
+                  >
+                    Delete card
+                  </button>
+                </div>
+              )}
+
+              {st.editing && (
+                <div style={{ width: "340px", maxWidth: "100%", background: "#fffdf7", border: "1.5px solid #e9dfca", borderRadius: "18px", padding: "20px", boxShadow: "0 14px 40px rgba(58,52,43,.18)" }}>
+                  <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "20px", color: "#352f27", marginBottom: "16px" }}>Edit card</div>
+
+                  <div style={fieldLabelStyle}>Title</div>
+                  <input
+                    style={{ ...fieldBoxStyle, marginBottom: "14px" }}
+                    placeholder="Card title (e.g. WebSocket server)"
+                    value={st.editSkill}
+                    onChange={(e) => this.setState({ editSkill: e.target.value })}
+                  />
+
+                  <div style={fieldLabelStyle}>Description</div>
+                  <textarea
+                    style={{ ...fieldBoxStyle, minHeight: "70px", resize: "vertical", lineHeight: 1.45, marginBottom: "14px" }}
+                    placeholder="What you accomplished"
+                    value={st.editWin}
+                    onChange={(e) => this.setState({ editWin: e.target.value })}
+                  />
+
+                  <div style={fieldLabelStyle}>What you overcame</div>
+                  <textarea
+                    style={{ ...fieldBoxStyle, minHeight: "54px", resize: "vertical", lineHeight: 1.45, marginBottom: "14px" }}
+                    placeholder="The struggle behind it (optional)"
+                    value={st.editOvercame}
+                    onChange={(e) => this.setState({ editOvercame: e.target.value })}
+                  />
+
+                  <div style={fieldLabelStyle}>Type</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginBottom: "16px" }}>
+                    {TYPE_ORDER.map((k) => (
+                      <button
+                        key={k}
+                        style={{
+                          border: "1.5px solid " + (st.editType === k ? TYPES[k].deep : "#e2d8c2"),
+                          background: st.editType === k ? TYPES[k].fill : "#fbf7ec",
+                          color: st.editType === k ? TYPES[k].ink : "#8a8275",
+                          cursor: "pointer",
+                          borderRadius: "999px",
+                          padding: "6px 12px",
+                          fontFamily: "'Hanken Grotesk',sans-serif",
+                          fontWeight: 600,
+                          fontSize: "12.5px",
+                        }}
+                        onClick={() => this.setState({ editType: k })}
+                      >
+                        {TYPES[k].label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={fieldLabelStyle}>Card image</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
+                    <label style={{ ...ghostBtnStyle, padding: "9px 16px", fontSize: "14px", display: "inline-block" }}>
+                      {st.editImage ? "Change image" : "Upload image"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => { this.onPickImage(e.target.files?.[0]); e.currentTarget.value = ""; }}
+                      />
+                    </label>
+                    {st.editImage && (
+                      <button
+                        style={{ background: "transparent", border: "none", color: "#b0564a", cursor: "pointer", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "13px" }}
+                        onClick={() => this.setState({ editImage: undefined })}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      style={{ ...addSubmitStyle, flex: 1, padding: "12px", opacity: st.savingEdit ? 0.7 : 1, cursor: st.savingEdit ? "default" : "pointer" }}
+                      onClick={() => this.saveEdit()}
+                    >
+                      {st.savingEdit ? "Saving…" : "Save changes"}
+                    </button>
+                    <button style={{ ...ghostBtnStyle, padding: "12px 18px" }} onClick={() => this.cancelEdit()}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
     );
   }

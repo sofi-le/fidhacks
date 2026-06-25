@@ -23,14 +23,18 @@ import {
   getSkillsSeen,
   getBalance,
   deleteCard,
+  updateCard,
   resetDemo,
 } from "./db.js";
 import { draftCard, useMock } from "./extract.js";
 import { generateRecap } from "./recap.js";
 
+const TYPES = ["Academic", "Technical", "Financial", "Social", "Hobbies"];
+
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Bump the body limit: edited card art arrives as a base64 data URL.
+app.use(express.json({ limit: "12mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
@@ -68,6 +72,27 @@ app.post("/api/extract", async (req, res) => {
 });
 
 app.get("/api/cards", (_req, res) => res.json(getAllCards()));
+
+// Edit a card in place (the detail modal's "Edit" panel): title (skill),
+// description (win), the struggle line, type, and/or card art. Only the fields
+// present in the body are changed.
+app.patch("/api/cards/:id", (req, res) => {
+  const b = req.body || {};
+  const patch = {};
+  const oneLine = (s, max = 240) => s.toString().replace(/\s+/g, " ").trim().slice(0, max);
+
+  if (typeof b.skill === "string") patch.skill = oneLine(b.skill);
+  if (typeof b.win === "string") patch.win = oneLine(b.win);
+  if (typeof b.overcame === "string") patch.overcame = oneLine(b.overcame);
+  if (typeof b.type === "string" && TYPES.includes(b.type)) patch.type = b.type;
+  // image: a data URL string sets art; null clears it.
+  if (typeof b.image === "string") patch.image = b.image;
+  else if (b.image === null) patch.image = null;
+
+  const updated = updateCard(req.params.id, patch);
+  if (!updated) return res.status(404).json({ error: "card not found" });
+  res.json(updated);
+});
 
 // Delete one card (the binder's "Delete card" button)
 app.delete("/api/cards/:id", (req, res) => {

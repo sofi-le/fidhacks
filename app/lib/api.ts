@@ -13,6 +13,7 @@ export interface ApiCard {
   win: string;
   overcame: string;
   skill: string;
+  image?: string | null; // optional card art (data URL)
 }
 
 // What the UI renders (lowercase type for the color map, date as YYYY-MM-DD).
@@ -23,6 +24,7 @@ export interface UiCard {
   win: string;
   overcame: string;
   date: string; // YYYY-MM-DD
+  image?: string; // optional card art (data URL)
 }
 
 const VALID = ["academic", "technical", "social", "hobbies", "financial"];
@@ -36,6 +38,7 @@ export function fromApi(a: ApiCard): UiCard {
     win: a.win || "",
     overcame: a.overcame || "",
     date: (a.timestamp || "").slice(0, 10) || "2026-06-01",
+    image: a.image || undefined,
   };
 }
 
@@ -62,4 +65,23 @@ export async function deleteCardApi(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!r.ok && r.status !== 404) throw new Error(`DELETE /api/cards ${r.status}`);
+}
+
+// Fields the detail modal can edit. `image: null` clears the art.
+export interface CardPatch {
+  skill?: string;
+  win?: string;
+  overcame?: string;
+  type?: string; // "Technical" | "Academic" | ... (capitalized for the contract)
+  image?: string | null;
+}
+
+export async function updateCardApi(id: string, patch: CardPatch): Promise<UiCard> {
+  const r = await fetch(`${API_BASE}/api/cards/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!r.ok) throw new Error(`PATCH /api/cards ${r.status}`);
+  return fromApi(await r.json());
 }

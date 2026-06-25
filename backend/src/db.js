@@ -37,6 +37,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp);
 `);
 
+// Migration: optional card art (data URL string). SQLite has no "ADD COLUMN IF
+// NOT EXISTS", so guard the ALTER — it throws harmlessly once the column exists.
+try {
+  db.exec(`ALTER TABLE cards ADD COLUMN image TEXT`);
+} catch {
+  /* column already there */
+}
+
 // --- prepared statements ----------------------------------------------------
 
 const insertCard = db.prepare(`
@@ -84,6 +92,27 @@ export function getRecentCards(limit = 12) {
 const deleteCardStmt = db.prepare(`DELETE FROM cards WHERE id = ?`);
 export function deleteCard(id) {
   return deleteCardStmt.run(id).changes > 0;
+}
+
+const selectCardStmt = db.prepare(`SELECT * FROM cards WHERE id = ?`);
+export function getCard(id) {
+  return selectCardStmt.get(id);
+}
+
+/**
+ * Patch an existing card's editable fields (skill/win/overcame/type/image) and
+ * return the updated row, or null if the id is unknown. Only the keys present in
+ * `fields` are touched; everything else is left as-is. `image: null` clears art.
+ */
+const EDITABLE = ["skill", "win", "overcame", "type", "image"];
+export function updateCard(id, fields) {
+  const keys = EDITABLE.filter((k) => k in fields);
+  if (keys.length === 0) return getCard(id);
+  const setClause = keys.map((k) => `${k} = @${k}`).join(", ");
+  const params = { id };
+  for (const k of keys) params[k] = fields[k];
+  db.prepare(`UPDATE cards SET ${setClause} WHERE id = @id`).run(params);
+  return getCard(id);
 }
 
 /** Cards within a period ("week" | "month" | "all"), newest first. Feeds the recap. */

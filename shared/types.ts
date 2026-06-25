@@ -12,6 +12,7 @@ export interface Card {
   win: string;            // one-line accomplishment (AI-written, human-sounding)
   overcame: string;       // the struggle behind it (AI-written)
   skill: string;          // what it proves (tag) — also the semantic-memory key
+  image?: string;         // OPTIONAL card art — a data URL (user-uploaded)
 }
 
 // Semantic memory: one row per distinct skill ever seen.
