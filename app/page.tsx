@@ -4,13 +4,14 @@ import Card from "./Card";
 import { getCards, extractCard, deleteCardApi, UiCard } from "./lib/api";
 
 const TYPES: Record<string, { label: string; fill: string; deep: string; ink: string }> = {
-  academic: { label: "Academic", fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
-  technical: { label: "Technical", fill: "#e2d6f4", deep: "#7d5fc0", ink: "#553a91" },
-  social: { label: "Social", fill: "#fad7c2", deep: "#d6814f", ink: "#a4592b" },
-  hobbies: { label: "Hobbies", fill: "#cdecdc", deep: "#46a583", ink: "#2c7a5e" },
-  financial: { label: "Financial", fill: "#f4e7b4", deep: "#bb9a35", ink: "#856c14" },
+  academic:          { label: "Academic",          fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
+  career:            { label: "Career",             fill: "#e2d6f4", deep: "#7d5fc0", ink: "#553a91" },
+  hobbies:           { label: "Hobbies",            fill: "#cdecdc", deep: "#46a583", ink: "#2c7a5e" },
+  "social & family": { label: "Social & Family",    fill: "#fad7c2", deep: "#d6814f", ink: "#a4592b" },
+  financial:         { label: "Financial",          fill: "#f4e7b4", deep: "#bb9a35", ink: "#856c14" },
+  "health & wellness": { label: "Health & Wellness", fill: "#d4f0e0", deep: "#3aaa6a", ink: "#1f7a48" },
 };
-const TYPE_ORDER = ["academic", "technical", "social", "hobbies", "financial"];
+const TYPE_ORDER = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 const FAV_KEY = "pos_favorites";
 function loadFavs(): string[] {
   try {
@@ -51,12 +52,14 @@ type S = {
   recording: boolean;
   summarizing: boolean;
   justAdded: boolean;
+  cardImages: Record<string, string>;
 };
 
 export default class ProofOfSkill extends React.Component<unknown, S> {
   bookRef = React.createRef<HTMLDivElement>();
   fitOuterRef = React.createRef<HTMLDivElement>();
   rootRef = React.createRef<HTMLDivElement>();
+  fileInputRef = React.createRef<HTMLInputElement>();
   _recog: any = null;
   _baseText = "";
   _ft: any = null;
@@ -87,13 +90,14 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     recording: false,
     summarizing: false,
     justAdded: false,
+    cardImages: (() => { try { return JSON.parse(localStorage.getItem("card_images") || "{}"); } catch { return {}; } })(),
   };
 
   async loadCards() {
     try {
       const cards = await getCards();
       this.setState((st) => ({
-        cards,
+        cards: cards.map((c) => ({ ...c, imageUrl: st.cardImages[c.id] })),
         shareCardId: cards.some((c) => c.id === st.shareCardId) ? st.shareCardId : cards[0]?.id || "",
       }));
     } catch {
@@ -106,6 +110,20 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       await deleteCardApi(id);
     } catch {}
     this.setState((st) => ({ cards: st.cards.filter((c) => c.id !== id), selectedId: null }));
+  }
+
+  handleImagePick(id: string, file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      this.setState((st) => {
+        const cardImages = { ...st.cardImages, [id]: dataUrl };
+        try { localStorage.setItem("card_images", JSON.stringify(cardImages)); } catch {}
+        const cards = st.cards.map((c) => c.id === id ? { ...c, imageUrl: dataUrl } : c);
+        return { cardImages, cards };
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   toggleRecord() {
@@ -263,12 +281,12 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       R = 74;
     const ptsAt = (f: number) =>
       TYPE_ORDER.map((k, i) => {
-        const a = ((-90 + i * 72) * Math.PI) / 180;
+        const a = ((-90 + i * 60) * Math.PI) / 180;
         return (cx + Math.cos(a) * R * f).toFixed(1) + "," + (cy + Math.sin(a) * R * f).toFixed(1);
       }).join(" ");
     const rings = [0.34, 0.67, 1].map((f) => ({ points: ptsAt(f) }));
     const axes = TYPE_ORDER.map((k, i) => {
-      const a = ((-90 + i * 72) * Math.PI) / 180;
+      const a = ((-90 + i * 60) * Math.PI) / 180;
       const lr = R + 15;
       const lx = cx + Math.cos(a) * lr,
         ly = cy + Math.sin(a) * lr;
@@ -285,7 +303,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       };
     });
     const verts = TYPE_ORDER.map((k, i) => {
-      const a = ((-90 + i * 72) * Math.PI) / 180;
+      const a = ((-90 + i * 60) * Math.PI) / 180;
       const v = counts[k] / max;
       return {
         x: (cx + Math.cos(a) * R * v).toFixed(1),
@@ -1016,7 +1034,18 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
         {sel && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={() => this.setState({ selectedId: null })}>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }} onClick={(e) => e.stopPropagation()}>
-              <Card card={sel} size="lg" />
+              <input
+                ref={this.fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file && st.selectedId) this.handleImagePick(st.selectedId, file);
+                  e.target.value = "";
+                }}
+              />
+              <Card card={sel} size="lg" onArtClick={() => this.fileInputRef.current?.click()} />
               <button
                 style={{ background: "#fffaf8", color: "#b0564a", border: "1.5px solid #e0b3aa", borderRadius: "11px", padding: "11px 24px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 8px 20px rgba(58,52,43,.18)" }}
                 onClick={() => { if (st.selectedId) this.deleteCard(st.selectedId); }}

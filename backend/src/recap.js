@@ -71,7 +71,7 @@ export async function generateRecap({ period = "week", total, balance, recentWin
         temperature: 0.8,
         system: SYSTEM,
         messages: [{ role: "user", content: userMsg }],
-        output_format: { type: "json_schema", schema: RESPONSE_SCHEMA },
+        output_config: { format: { type: "json_schema", schema: RESPONSE_SCHEMA } },
       },
       { headers: { "anthropic-beta": "structured-outputs-2025-11-13" } }
     );

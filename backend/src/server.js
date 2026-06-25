@@ -36,7 +36,7 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
 });
 
-// The loop: transcript + memory -> AI draft -> save -> Card
+// Extracts card from transcript: transcript + memory -> AI drafted card -> generate image -> save card
 app.post("/api/extract", async (req, res) => {
   try {
     const transcript = (req.body?.transcript || "").toString().trim();
@@ -46,7 +46,7 @@ app.post("/api/extract", async (req, res) => {
     const recentCards = getRecentCards(12);
     const skillsSeen = getSkillsSeen();
 
-    // AI drafts the card fields
+    // AI drafts card
     const draft = await draftCard(transcript, { recentCards, skillsSeen });
 
     // assemble the Card and persist (episodic + semantic, atomic)
@@ -55,9 +55,9 @@ app.post("/api/extract", async (req, res) => {
       timestamp: new Date().toISOString(),
       type: draft.type,
       win: draft.win,
-      overcame: draft.overcame,
       skill: draft.skill,
     };
+    // save to database
     saveCard(card);
 
     res.json(card);
