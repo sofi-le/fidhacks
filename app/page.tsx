@@ -55,6 +55,22 @@ type S = {
   cardImages: Record<string, string>;
 };
 
+// Minimal shape of the Web Speech API we use (it isn't in the TS DOM lib reliably).
+type SpeechRecog = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((ev: { error?: string }) => void) | null;
+};
+type SpeechWindow = Window & {
+  SpeechRecognition?: { new (): SpeechRecog };
+  webkitSpeechRecognition?: { new (): SpeechRecog };
+};
+
 export default class ProofOfSkill extends React.Component<unknown, S> {
   bookRef = React.createRef<HTMLDivElement>();
   fitOuterRef = React.createRef<HTMLDivElement>();
@@ -62,10 +78,10 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
   fileInputRef = React.createRef<HTMLInputElement>();
   _recog: any = null;
   _baseText = "";
-  _ft: any = null;
-  _tt: any = null;
-  _onResize: any = null;
-  _fitTimers: any[] = [];
+  _ft: ReturnType<typeof setTimeout> | null = null;
+  _tt: ReturnType<typeof setTimeout> | null = null;
+  _onResize: () => void = () => {};
+  _fitTimers: ReturnType<typeof setTimeout>[] = [];
 
   state: S = {
     view: "binder",
@@ -129,11 +145,12 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
   toggleRecord() {
     if (this.state.recording) {
       try {
-        this._recog && this._recog.stop();
+        if (this._recog) this._recog.stop();
       } catch {}
       return;
     }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const w = window as SpeechWindow;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) {
       this.fireToast("Voice input not supported here — type your win");
       return;
@@ -144,7 +161,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       r.interimResults = true;
       r.continuous = true;
       this._baseText = this.state.addText ? this.state.addText.trim() + " " : "";
-      r.onresult = (e: any) => {
+      r.onresult = (e) => {
         let txt = "";
         for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
         this.setState({ addText: this._baseText + txt });
@@ -153,7 +170,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
         this._recog = null;
         this.setState({ recording: false });
       };
-      r.onerror = (ev: any) => {
+      r.onerror = (ev) => {
         this._recog = null;
         this.setState({ recording: false });
         if (ev && (ev.error === "not-allowed" || ev.error === "service-not-allowed"))
@@ -190,7 +207,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     }
     if (this.state.recording) {
       try {
-        this._recog && this._recog.stop();
+        if (this._recog) this._recog.stop();
       } catch {}
     }
     this.setState({ summarizing: true });
@@ -218,7 +235,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     (this._fitTimers || []).forEach(clearTimeout);
     if (this._ft) clearTimeout(this._ft);
     try {
-      this._recog && this._recog.stop();
+      if (this._recog) this._recog.stop();
     } catch {}
   }
   componentDidUpdate(_prevProps: unknown, prevState: S) {
@@ -290,7 +307,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       const lr = R + 15;
       const lx = cx + Math.cos(a) * lr,
         ly = cy + Math.sin(a) * lr;
-      let anchor = "middle";
+      let anchor: "middle" | "start" | "end" = "middle";
       if (lx > cx + 4) anchor = "start";
       else if (lx < cx - 4) anchor = "end";
       return {
