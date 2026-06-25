@@ -24,7 +24,6 @@ db.exec(`
     timestamp TEXT NOT NULL,
     type      TEXT NOT NULL,
     win       TEXT NOT NULL,
-    overcame  TEXT NOT NULL,
     skill     TEXT NOT NULL
   );
 
@@ -40,8 +39,8 @@ db.exec(`
 // --- prepared statements ----------------------------------------------------
 
 const insertCard = db.prepare(`
-  INSERT INTO cards (id, timestamp, type, win, overcame, skill)
-  VALUES (@id, @timestamp, @type, @win, @overcame, @skill)
+  INSERT INTO cards (id, timestamp, type, win, skill)
+  VALUES (@id, @timestamp, @type, @win, @skill)
 `);
 
 const upsertSkill = db.prepare(`
@@ -110,7 +109,7 @@ export function getSkillsSeen() {
  * so the radar/stacked-bar never has missing axes.
  */
 export function getBalance(period = "all") {
-  const ALL_TYPES = ["Academic", "Technical", "Financial", "Social", "Hobbies"];
+  const ALL_TYPES = ["Academic", "Career", "Hobbies", "Social & Family", "Financial", "Health & Wellness"];
   const since = periodStartISO(period);
 
   const rows = since

@@ -9,9 +9,8 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 export interface ApiCard {
   id: string;
   timestamp: string; // ISO
-  type: string; // "Technical" | "Academic" | ...
+  type: string; // "Career" | "Academic" | "Hobbies" | "Social & Family" | "Financial" | "Health & Wellness"
   win: string;
-  overcame: string;
   skill: string;
 }
 
@@ -21,20 +20,19 @@ export interface UiCard {
   type: string; // "technical" | "academic" | ...
   skill: string;
   win: string;
-  overcame: string;
   date: string; // YYYY-MM-DD
+  imageUrl?: string;
 }
 
-const VALID = ["academic", "technical", "social", "hobbies", "financial"];
+const VALID = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 
 export function fromApi(a: ApiCard): UiCard {
-  const type = (a.type || "Technical").toLowerCase();
+  const type = (a.type || "Career").toLowerCase();
   return {
     id: a.id,
-    type: VALID.includes(type) ? type : "technical",
+    type: VALID.includes(type) ? type : "career",
     skill: a.skill || "",
     win: a.win || "",
-    overcame: a.overcame || "",
     date: (a.timestamp || "").slice(0, 10) || "2026-06-01",
   };
 }
