@@ -1,65 +1,1032 @@
-import Image from "next/image";
+"use client";
+import React from "react";
+import Card from "./Card";
+import { getCards, extractCard, deleteCardApi, UiCard } from "./lib/api";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+const TYPES: Record<string, { label: string; fill: string; deep: string; ink: string }> = {
+  academic: { label: "Academic", fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
+  technical: { label: "Technical", fill: "#e2d6f4", deep: "#7d5fc0", ink: "#553a91" },
+  social: { label: "Social", fill: "#fad7c2", deep: "#d6814f", ink: "#a4592b" },
+  hobbies: { label: "Hobbies", fill: "#cdecdc", deep: "#46a583", ink: "#2c7a5e" },
+  financial: { label: "Financial", fill: "#f4e7b4", deep: "#bb9a35", ink: "#856c14" },
+};
+const TYPE_ORDER = ["academic", "technical", "social", "hobbies", "financial"];
+const FAV_KEY = "pos_favorites";
+function loadFavs(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(FAV_KEY) || "[]") || [];
+  } catch {
+    return [];
+  }
+}
+function saveFavs(f: string[]) {
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(f));
+  } catch {}
+}
+
+const WEEK_START = "2026-06-19";
+const MONTH_START = "2026-06-01";
+
+type S = {
+  view: string;
+  filter: string;
+  sortDir: string;
+  spread: number;
+  turning: string | null;
+  period: string;
+  shareMode: string;
+  shareCardId: string;
+  selectedId: string | null;
+  showToast: boolean;
+  toastText: string;
+  favorites: string[];
+  fitScale: number;
+  fitH: number;
+  pageInput: string | null;
+  cards: UiCard[];
+  addTitle: string;
+  addType: string;
+  addText: string;
+  recording: boolean;
+  summarizing: boolean;
+  justAdded: boolean;
+};
+
+export default class ProofOfSkill extends React.Component<unknown, S> {
+  bookRef = React.createRef<HTMLDivElement>();
+  fitOuterRef = React.createRef<HTMLDivElement>();
+  rootRef = React.createRef<HTMLDivElement>();
+  _recog: any = null;
+  _baseText = "";
+  _ft: any = null;
+  _tt: any = null;
+  _onResize: any = null;
+  _fitTimers: any[] = [];
+
+  state: S = {
+    view: "binder",
+    filter: "all",
+    sortDir: "desc",
+    spread: 0,
+    turning: null,
+    period: "week",
+    shareMode: "profile",
+    shareCardId: "c11",
+    selectedId: null,
+    showToast: false,
+    toastText: "",
+    favorites: [],
+    fitScale: 1,
+    fitH: 520,
+    pageInput: null,
+    cards: [],
+    addTitle: "",
+    addType: "technical",
+    addText: "",
+    recording: false,
+    summarizing: false,
+    justAdded: false,
+  };
+
+  async loadCards() {
+    try {
+      const cards = await getCards();
+      this.setState((st) => ({
+        cards,
+        shareCardId: cards.some((c) => c.id === st.shareCardId) ? st.shareCardId : cards[0]?.id || "",
+      }));
+    } catch {
+      this.fireToast("Couldn't reach the backend — is it running on :8787?");
+    }
+  }
+
+  async deleteCard(id: string) {
+    try {
+      await deleteCardApi(id);
+    } catch {}
+    this.setState((st) => ({ cards: st.cards.filter((c) => c.id !== id), selectedId: null }));
+  }
+
+  toggleRecord() {
+    if (this.state.recording) {
+      try {
+        this._recog && this._recog.stop();
+      } catch {}
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      this.fireToast("Voice input not supported here — type your win");
+      return;
+    }
+    try {
+      const r = new SR();
+      r.lang = "en-US";
+      r.interimResults = true;
+      r.continuous = true;
+      this._baseText = this.state.addText ? this.state.addText.trim() + " " : "";
+      r.onresult = (e: any) => {
+        let txt = "";
+        for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
+        this.setState({ addText: this._baseText + txt });
+      };
+      r.onend = () => {
+        this._recog = null;
+        this.setState({ recording: false });
+      };
+      r.onerror = (ev: any) => {
+        this._recog = null;
+        this.setState({ recording: false });
+        if (ev && (ev.error === "not-allowed" || ev.error === "service-not-allowed"))
+          this.fireToast("Mic blocked — type your win instead");
+      };
+      this._recog = r;
+      this.setState({ recording: true });
+      r.start();
+    } catch {
+      this.setState({ recording: false });
+      this.fireToast("Mic unavailable — type your win");
+    }
+  }
+
+  summarizeText() {
+    const text = (this.state.addText || "").trim();
+    if (!text || this.state.summarizing) return;
+    this.setState({ summarizing: true });
+    // Condense locally; the backend AI does the real rewrite when you submit.
+    const out = text.split(". ")[0].slice(0, 140);
+    this.setState({ addText: out, summarizing: false });
+  }
+
+  async submitAdd() {
+    const title = (this.state.addTitle || "").trim();
+    const text = (this.state.addText || "").trim();
+    if (!title) {
+      this.fireToast("Give your win a name");
+      return;
+    }
+    if (!text) {
+      this.fireToast("Add a few words about your win");
+      return;
+    }
+    if (this.state.recording) {
+      try {
+        this._recog && this._recog.stop();
+      } catch {}
+    }
+    this.setState({ summarizing: true });
+    try {
+      // The backend's AI + memory mint the real card and persist it.
+      await extractCard(`${title}. ${text}`);
+      await this.loadCards();
+      this.setState({ justAdded: true, addTitle: "", addText: "", recording: false, summarizing: false });
+    } catch {
+      this.setState({ summarizing: false });
+      this.fireToast("Couldn't add the card — backend offline?");
+    }
+  }
+
+  componentDidMount() {
+    this.setState({ favorites: loadFavs() });
+    this.loadCards();
+    this._onResize = () => this.computeFit();
+    window.addEventListener("resize", this._onResize);
+    this.scheduleFit();
+    this._fitTimers = [120, 450, 1000].map((ms) => setTimeout(() => this.computeFit(), ms));
+  }
+  componentWillUnmount() {
+    window.removeEventListener("resize", this._onResize);
+    (this._fitTimers || []).forEach(clearTimeout);
+    if (this._ft) clearTimeout(this._ft);
+    try {
+      this._recog && this._recog.stop();
+    } catch {}
+  }
+  componentDidUpdate(_prevProps: unknown, prevState: S) {
+    if (prevState && prevState.view !== "binder" && this.state.view === "binder") {
+      this.scheduleFit();
+      setTimeout(() => this.computeFit(), 300);
+    }
+  }
+  scheduleFit() {
+    requestAnimationFrame(() => this.computeFit());
+  }
+  computeFit() {
+    const outer = this.fitOuterRef.current;
+    if (!outer) return;
+    const NAT_W = 841,
+      NAT_H = 611;
+    const availW = outer.clientWidth - 2;
+    const top = outer.getBoundingClientRect().top;
+    const availH = window.innerHeight - top - 22;
+    let s = Math.min(availW / NAT_W, availH / NAT_H, 1.18);
+    if (!isFinite(s) || s <= 0) s = 1;
+    s = Math.max(0.4, s);
+    const fitH = Math.round(NAT_H * s);
+    if (Math.abs(s - this.state.fitScale) > 0.004 || Math.abs(fitH - this.state.fitH) > 1) {
+      this.setState({ fitScale: s, fitH });
+    }
+  }
+
+  flip(dir: string, spread: number, totalSpreads: number) {
+    if (this.state.turning) return;
+    if (dir === "next" && spread >= totalSpreads - 1) return;
+    if (dir === "prev" && spread <= 0) return;
+    this.setState({ turning: dir });
+    if (this._ft) clearTimeout(this._ft);
+    this._ft = setTimeout(() => {
+      this.setState({ spread: spread + (dir === "next" ? 1 : -1), turning: null, pageInput: null });
+    }, 470);
+  }
+
+  toggleFavId(id: string) {
+    const set = new Set(this.state.favorites);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    const arr = [...set];
+    saveFavs(arr);
+    this.setState({ favorites: arr });
+  }
+
+  buildRadar(cards: UiCard[]) {
+    const counts: Record<string, number> = {};
+    TYPE_ORDER.forEach((k) => {
+      counts[k] = 0;
+    });
+    cards.forEach((c) => {
+      if (c.type in counts) counts[c.type]++;
+    });
+    const max = Math.max(1, ...TYPE_ORDER.map((k) => counts[k]));
+    const cx = 100,
+      cy = 100,
+      R = 74;
+    const ptsAt = (f: number) =>
+      TYPE_ORDER.map((k, i) => {
+        const a = ((-90 + i * 72) * Math.PI) / 180;
+        return (cx + Math.cos(a) * R * f).toFixed(1) + "," + (cy + Math.sin(a) * R * f).toFixed(1);
+      }).join(" ");
+    const rings = [0.34, 0.67, 1].map((f) => ({ points: ptsAt(f) }));
+    const axes = TYPE_ORDER.map((k, i) => {
+      const a = ((-90 + i * 72) * Math.PI) / 180;
+      const lr = R + 15;
+      const lx = cx + Math.cos(a) * lr,
+        ly = cy + Math.sin(a) * lr;
+      let anchor = "middle";
+      if (lx > cx + 4) anchor = "start";
+      else if (lx < cx - 4) anchor = "end";
+      return {
+        x: (cx + Math.cos(a) * R).toFixed(1),
+        y: (cy + Math.sin(a) * R).toFixed(1),
+        lx: lx.toFixed(1),
+        ly: (ly + (ly < cy ? -1 : 7)).toFixed(1),
+        anchor,
+        label: TYPES[k].label,
+      };
+    });
+    const verts = TYPE_ORDER.map((k, i) => {
+      const a = ((-90 + i * 72) * Math.PI) / 180;
+      const v = counts[k] / max;
+      return {
+        x: (cx + Math.cos(a) * R * v).toFixed(1),
+        y: (cy + Math.sin(a) * R * v).toFixed(1),
+        color: TYPES[k].deep,
+      };
+    });
+    return { rings, axes, verts, dataPoly: verts.map((p) => p.x + "," + p.y).join(" "), counts };
+  }
+
+  fireToast(text: string) {
+    if (this._tt) clearTimeout(this._tt);
+    this.setState({ showToast: true, toastText: text });
+    this._tt = setTimeout(() => this.setState({ showToast: false }), 1900);
+  }
+
+  tabStyle(active: boolean): React.CSSProperties {
+    return {
+      border: "none",
+      cursor: "pointer",
+      borderRadius: "10px",
+      padding: "8px 16px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "14px",
+      background: active ? "#3a342b" : "transparent",
+      color: active ? "#fdf7e8" : "#8a8275",
+    };
+  }
+
+  render() {
+    const st = this.state;
+    const tabStyle = (a: boolean) => this.tabStyle(a);
+    const tabs = [
+      ["binder", "Binder"],
+      ["balance", "Balance"],
+      ["share", "Share"],
+      ["add", "+ Add win"],
+    ].map(([k, label]) => ({ k, label, style: tabStyle(st.view === k) }));
+
+    const ALL = st.cards;
+    const favSet = new Set(st.favorites);
+
+    const chipStyle = (active: boolean, type: string | null): React.CSSProperties => ({
+      border: "1.5px solid " + (active ? (type ? TYPES[type].deep : "#3a342b") : "#e2d8c2"),
+      background: active ? (type ? TYPES[type].fill : "#3a342b") : "#fbf7ec",
+      color: active ? (type ? TYPES[type].ink : "#fdf7e8") : "#8a8275",
+      cursor: "pointer",
+      borderRadius: "999px",
+      padding: "6px 13px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "13px",
+    });
+    const favChipStyle = (active: boolean): React.CSSProperties => ({
+      border: "1.5px solid " + (active ? "#e6cf73" : "#e2d8c2"),
+      background: active ? "#fbf1c9" : "#fbf7ec",
+      color: active ? "#9a7b1f" : "#8a8275",
+      cursor: "pointer",
+      borderRadius: "999px",
+      padding: "6px 13px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "13px",
+    });
+    const favCount = st.favorites.length;
+    const filterChips = [
+      { k: "all", label: "All", style: chipStyle(st.filter === "all", null) },
+      { k: "fav", label: "★ Favorites" + (favCount ? " (" + favCount + ")" : ""), style: favChipStyle(st.filter === "fav") },
+    ].concat(TYPE_ORDER.map((k) => ({ k, label: TYPES[k].label, style: chipStyle(st.filter === k, k) })));
+
+    let baseCards =
+      st.filter === "all"
+        ? ALL
+        : st.filter === "fav"
+        ? ALL.filter((c) => favSet.has(c.id))
+        : ALL.filter((c) => c.type === st.filter);
+    baseCards = [...baseCards].sort((a, b) =>
+      st.sortDir === "desc" ? (a.date < b.date ? 1 : -1) : a.date > b.date ? 1 : -1
+    );
+    const heartStyle = (fav: boolean): React.CSSProperties => ({
+      position: "absolute",
+      top: "-9px",
+      right: "8px",
+      zIndex: 3,
+      width: "28px",
+      height: "28px",
+      borderRadius: "50%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: "pointer",
+      fontSize: "15px",
+      lineHeight: 1,
+      padding: 0,
+      background: fav ? "#fdf4cf" : "#fffdf7",
+      border: "1.5px solid " + (fav ? "#e6cf73" : "#e2d8c2"),
+      color: fav ? "#d9a92a" : "#c9c0ae",
+      boxShadow: "0 2px 6px rgba(58,52,43,.12)",
+    });
+    const binderCards = baseCards.map((c) => {
+      const fav = favSet.has(c.id);
+      return { id: c.id, card: c, heartLabel: fav ? "★" : "☆", heartStyle: heartStyle(fav) };
+    });
+    const sortBtnStyle: React.CSSProperties = {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      border: "1.5px solid #e2d8c2",
+      background: "#fbf7ec",
+      color: "#6b6356",
+      cursor: "pointer",
+      borderRadius: "999px",
+      padding: "6px 14px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "13px",
+      whiteSpace: "nowrap",
+    };
+
+    // flipbook pagination
+    const PER_PAGE = 4,
+      PER_SPREAD = 8;
+    const totalPages = Math.max(1, Math.ceil(binderCards.length / PER_PAGE));
+    const totalSpreads = Math.max(1, Math.ceil(binderCards.length / PER_SPREAD));
+    const spread = Math.min(Math.max(0, st.spread), totalSpreads - 1);
+    const base = spread * PER_SPREAD;
+    const leftCards = binderCards.slice(base, base + PER_PAGE);
+    const rightCards = binderCards.slice(base + PER_PAGE, base + PER_SPREAD);
+    const gridStyle: React.CSSProperties = {
+      display: "grid",
+      gridTemplateColumns: "repeat(2, 172px)",
+      gridAutoRows: "236px",
+      gap: "18px 16px",
+      justifyContent: "center",
+      alignContent: "center",
+    };
+    const leftNo = spread * 2 + 1,
+      rightNo = spread * 2 + 2;
+    const arrowBtn = (disabled: boolean): React.CSSProperties => ({
+      width: "46px",
+      height: "46px",
+      borderRadius: "50%",
+      border: "1.5px solid " + (disabled ? "#ece2cd" : "#d8cbac"),
+      background: disabled ? "#f6f1e4" : "#fbf7ec",
+      color: disabled ? "#cfc6b3" : "#6b6356",
+      fontSize: "20px",
+      cursor: disabled ? "default" : "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      boxShadow: disabled ? "none" : "0 4px 12px rgba(58,52,43,.10)",
+    });
+    const leaf = st.turning;
+    const leafStyle: React.CSSProperties =
+      leaf === "next"
+        ? {
+            position: "absolute",
+            top: "11px",
+            bottom: "11px",
+            right: "11px",
+            width: "calc(50% - 12px)",
+            transformOrigin: "left center",
+            transformStyle: "preserve-3d",
+            animation: "leafNext .47s ease forwards",
+            background: "linear-gradient(100deg,#fdf9ef,#ece1c9)",
+            borderRadius: "3px 9px 9px 3px",
+            boxShadow: "0 16px 34px rgba(58,52,43,.24)",
+            zIndex: 6,
+            backfaceVisibility: "hidden",
+          }
+        : {
+            position: "absolute",
+            top: "11px",
+            bottom: "11px",
+            left: "11px",
+            width: "calc(50% - 12px)",
+            transformOrigin: "right center",
+            transformStyle: "preserve-3d",
+            animation: "leafPrev .47s ease forwards",
+            background: "linear-gradient(260deg,#fdf9ef,#ece1c9)",
+            borderRadius: "9px 3px 3px 9px",
+            boxShadow: "0 16px 34px rgba(58,52,43,.24)",
+            zIndex: 6,
+            backfaceVisibility: "hidden",
+          };
+
+    // balance
+    const periodCards = ALL.filter((c) => c.date >= (st.period === "week" ? WEEK_START : MONTH_START));
+    const radar = this.buildRadar(periodCards);
+    const total = periodCards.length || 1;
+    const sorted = [...TYPE_ORDER].sort((a, b) => radar.counts[b] - radar.counts[a]);
+    const topType = sorted[0],
+      lowType = sorted[sorted.length - 1];
+    const periodWord = st.period === "week" ? "this week" : "this month";
+    const legend = TYPE_ORDER.map((k) => {
+      const n = radar.counts[k];
+      const pct = Math.round((n / total) * 100);
+      return {
+        label: TYPES[k].label,
+        dotStyle: { width: "12px", height: "12px", borderRadius: "50%", background: TYPES[k].deep, flex: "0 0 auto" } as React.CSSProperties,
+        stat: n + " · " + pct + "%",
+      };
+    });
+    const mirror = "Most of your energy " + periodWord + " went to " + TYPES[topType].label + ". The shape below is the honest mirror.";
+    const recap =
+      "You logged " +
+      periodCards.length +
+      " wins " +
+      periodWord +
+      ". " +
+      TYPES[topType].label +
+      " took the lead. Lightest on " +
+      TYPES[lowType].label +
+      " — maybe give it some love this week?";
+
+    // share
+    const shareTabs = [
+      ["profile", "Profile"],
+      ["single", "Single card"],
+    ].map(([k, label]) => ({ k, label, style: tabStyle(st.shareMode === k) }));
+    const monthCards = ALL.filter((c) => c.date >= MONTH_START);
+    const profileRadar = this.buildRadar(monthCards);
+    const favProfile = ALL.filter((c) => favSet.has(c.id)).sort((a, b) => (a.date < b.date ? 1 : -1));
+    const restProfile = ALL.filter((c) => !favSet.has(c.id)).sort((a, b) => (a.date < b.date ? 1 : -1));
+    const profileCards = favProfile.concat(restProfile).slice(0, 3);
+    const shareCard = ALL.find((c) => c.id === st.shareCardId) || ALL[0];
+    const shareHeadline = "just earned this!";
+    const shareChips = ALL.map((c) => ({
+      id: c.id,
+      label: c.skill,
+      style: {
+        border: "1.5px solid " + (c.id === st.shareCardId ? TYPES[c.type].deep : "#e2d8c2"),
+        background: c.id === st.shareCardId ? TYPES[c.type].fill : "#fbf7ec",
+        color: c.id === st.shareCardId ? TYPES[c.type].ink : "#8a8275",
+        cursor: "pointer",
+        borderRadius: "999px",
+        padding: "5px 11px",
+        fontFamily: '"Hanken Grotesk",sans-serif',
+        fontWeight: 600,
+        fontSize: "12px",
+      } as React.CSSProperties,
+    }));
+    const exportBtnStyle: React.CSSProperties = {
+      background: "#3a342b",
+      color: "#fdf7e8",
+      border: "none",
+      borderRadius: "12px",
+      padding: "12px 26px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "15px",
+      cursor: "pointer",
+      boxShadow: "0 8px 22px rgba(58,52,43,.18)",
+    };
+    const sel = ALL.find((c) => c.id === st.selectedId) || null;
+
+    const pageDisplayValue = st.pageInput != null ? st.pageInput : String(leftNo);
+    const pageInputStyle: React.CSSProperties = {
+      width: "44px",
+      textAlign: "center",
+      font: "inherit",
+      fontWeight: 700,
+      color: "#6b5a3c",
+      background: "#fff7e6",
+      border: "1.5px solid #e2d3ad",
+      borderRadius: "8px",
+      padding: "1px 4px",
+      outline: "none",
+    };
+
+    const micBtnStyle: React.CSSProperties = {
+      width: "104px",
+      height: "104px",
+      borderRadius: "50%",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      position: "relative",
+      zIndex: 1,
+      background: st.recording ? "#dd7d72" : "#fbf3df",
+      color: st.recording ? "#fffaf8" : "#bb8b4e",
+      border: st.recording ? "2px solid #dd7d72" : "2px solid #ecdcaf",
+      boxShadow: st.recording ? "0 12px 28px rgba(221,125,114,.45)" : "0 8px 22px rgba(58,52,43,.12)",
+    };
+    const summarizeBtnStyle: React.CSSProperties = {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      border: "1.5px solid #e2d3ad",
+      background: st.summarizing ? "#f3ecd6" : "#fbf1c9",
+      color: "#9a7b1f",
+      cursor: st.summarizing ? "default" : "pointer",
+      borderRadius: "999px",
+      padding: "8px 15px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "13px",
+      opacity: st.summarizing ? 0.7 : 1,
+    };
+    const addSubmitStyle: React.CSSProperties = {
+      width: "100%",
+      background: "#3a342b",
+      color: "#fdf7e8",
+      border: "none",
+      borderRadius: "12px",
+      padding: "14px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 700,
+      fontSize: "15px",
+      cursor: "pointer",
+      boxShadow: "0 8px 22px rgba(58,52,43,.18)",
+    };
+    const primaryBtnStyle: React.CSSProperties = { ...addSubmitStyle, width: "auto", padding: "13px 22px" };
+    const ghostBtnStyle: React.CSSProperties = {
+      background: "#fbf7ec",
+      color: "#6b6356",
+      border: "1.5px solid #e2d8c2",
+      borderRadius: "12px",
+      padding: "13px 20px",
+      fontFamily: '"Hanken Grotesk",sans-serif',
+      fontWeight: 600,
+      fontSize: "15px",
+      cursor: "pointer",
+    };
+
+    const setView = (e: React.MouseEvent<HTMLButtonElement>) =>
+      this.setState({ view: (e.currentTarget as HTMLButtonElement).dataset.k as string });
+
+    return (
+      <div
+        ref={this.rootRef}
+        style={{
+          minHeight: "100%",
+          background: "#f3eddf",
+          backgroundImage: "radial-gradient(#e7dec9 0.8px, transparent 0.8px)",
+          backgroundSize: "22px 22px",
+          fontFamily: "'Hanken Grotesk',system-ui,sans-serif",
+          color: "#3a342b",
+          padding: "20px 22px 24px",
+          boxSizing: "border-box",
+        }}
+      >
+        <div style={{ maxWidth: "1060px", margin: "0 auto" }}>
+          {/* HEADER */}
+          <header
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "space-between",
+              gap: "20px",
+              flexWrap: "wrap",
+              marginBottom: "14px",
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <div>
+              <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>
+                a binder of small wins
+              </div>
+              <h1
+                style={{
+                  fontFamily: "'Bricolage Grotesque',sans-serif",
+                  fontWeight: 800,
+                  fontSize: "34px",
+                  letterSpacing: "-.5px",
+                  margin: 0,
+                  color: "#352f27",
+                }}
+              >
+                Proof&#8202;of&#8202;Skill
+              </h1>
+            </div>
+            <nav
+              style={{
+                display: "flex",
+                gap: "6px",
+                background: "#fbf7ec",
+                border: "1.5px solid #e6dcc6",
+                borderRadius: "14px",
+                padding: "5px",
+                boxShadow: "0 4px 14px rgba(58,52,43,.06)",
+              }}
+            >
+              {tabs.map((tab) => (
+                <button key={tab.k as string} style={tab.style} onClick={setView} data-k={tab.k}>
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </header>
+
+          {/* BINDER */}
+          {st.view === "binder" && (
+            <section>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "10px" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                  <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: 0, color: "#352f27" }}>Your binder</h2>
+                  <span style={{ fontFamily: "'Space Mono',monospace", fontSize: "13px", color: "#a59c8c" }}>{binderCards.length} cards</span>
+                </div>
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                    {filterChips.map((chip) => (
+                      <button key={chip.k} style={chip.style} onClick={(e) => this.setState({ filter: e.currentTarget.dataset.k as string, spread: 0, turning: null, pageInput: null })} data-k={chip.k}>
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button style={sortBtnStyle} onClick={() => this.setState({ sortDir: st.sortDir === "desc" ? "asc" : "desc", spread: 0, turning: null, pageInput: null })}>
+                    {st.sortDir === "desc" ? "Newest first ↓" : "Oldest first ↑"}
+                  </button>
+                </div>
+              </div>
+
+              {binderCards.length === 0 && (
+                <div style={{ background: "#fbf7ec", border: "1.5px dashed #e2d8c2", borderRadius: "18px", padding: "64px 24px", textAlign: "center" }}>
+                  <div style={{ fontSize: "30px", color: "#e0708a", marginBottom: "8px" }}>&#9825;</div>
+                  <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "18px", color: "#6b6356", marginBottom: "4px" }}>
+                    {st.filter === "fav" ? "No favorites yet" : "No cards yet"}
+                  </div>
+                  <div style={{ fontSize: "14px", color: "#a59c8c" }}>
+                    {st.filter === "fav" ? "Tap the ♡ on any card to keep it here." : "Add your first win to start the binder."}
+                  </div>
+                </div>
+              )}
+
+              {binderCards.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+                  <div ref={this.fitOuterRef} style={{ width: "100%", height: st.fitH + "px", overflow: "hidden", display: "flex", justifyContent: "center" }}>
+                    <div ref={this.bookRef} style={{ transform: "scale(" + st.fitScale + ")", transformOrigin: "top center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div style={{ position: "relative", perspective: "2600px" }}>
+                        <div style={{ display: "flex", justifyContent: "center", background: "#ece2cb", border: "1.5px solid #dccfb1", borderRadius: "18px", padding: "13px", boxShadow: "0 26px 56px -14px rgba(58,52,43,.28), inset 0 1px 0 #f7efdc" }}>
+                          {/* LEFT PAGE */}
+                          <div style={{ width: "404px", height: "520px", position: "relative", background: "#fbf7ec", borderRadius: "10px 4px 4px 10px", boxShadow: "inset -18px 0 30px -20px rgba(58,52,43,.32)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ position: "absolute", left: "-6px", top: "12px", bottom: "12px", width: "6px", borderRadius: "4px 0 0 4px", background: "repeating-linear-gradient(#e6dbc2,#e6dbc2 1px,#f4edda 1px,#f4edda 3px)" }} />
+                            <div style={gridStyle}>
+                              {leftCards.map((c) => (
+                                <div key={c.id} className="pos-card" style={{ position: "relative", width: "172px", cursor: "pointer" }} onClick={() => this.setState({ selectedId: c.id })}>
+                                  <button style={c.heartStyle} onClick={(e) => { e.stopPropagation(); this.toggleFavId(c.id); }}>{c.heartLabel}</button>
+                                  <Card card={c.card} size="sm" />
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ position: "absolute", bottom: "10px", left: 0, right: 0, textAlign: "center", fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#bcb3a1" }}>{String(leftNo)}</div>
+                          </div>
+                          {/* SPINE */}
+                          <div style={{ width: "4px", background: "linear-gradient(90deg,rgba(58,52,43,.18),rgba(58,52,43,.04),rgba(58,52,43,.18))" }} />
+                          {/* RIGHT PAGE */}
+                          <div style={{ width: "404px", height: "520px", position: "relative", background: "#fbf7ec", borderRadius: "4px 10px 10px 4px", boxShadow: "inset 18px 0 30px -20px rgba(58,52,43,.32)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ position: "absolute", right: "-6px", top: "12px", bottom: "12px", width: "6px", borderRadius: "0 4px 4px 0", background: "repeating-linear-gradient(#e6dbc2,#e6dbc2 1px,#f4edda 1px,#f4edda 3px)" }} />
+                            {rightCards.length > 0 && (
+                              <div style={gridStyle}>
+                                {rightCards.map((c) => (
+                                  <div key={c.id} className="pos-card" style={{ position: "relative", width: "172px", cursor: "pointer" }} onClick={() => this.setState({ selectedId: c.id })}>
+                                    <button style={c.heartStyle} onClick={(e) => { e.stopPropagation(); this.toggleFavId(c.id); }}>{c.heartLabel}</button>
+                                    <Card card={c.card} size="sm" />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {rightCards.length === 0 && <div style={{ fontFamily: "'Caveat',cursive", fontSize: "27px", color: "#cfc6b3" }}>the end &middot; for now</div>}
+                            <div style={{ position: "absolute", bottom: "10px", left: 0, right: 0, textAlign: "center", fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#bcb3a1" }}>{rightCards.length ? String(rightNo) : ""}</div>
+                          </div>
+                        </div>
+                        {st.turning && <div style={leafStyle} />}
+                      </div>
+
+                      {/* NAV */}
+                      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "18px", marginTop: "16px" }}>
+                        <button style={arrowBtn(spread <= 0)} onClick={() => this.flip("prev", spread, totalSpreads)}>&#8592;</button>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "7px", fontFamily: "'Caveat',cursive", fontWeight: 600, fontSize: "23px", color: "#8a7a5c" }}>
+                          <span>Page</span>
+                          <input
+                            style={pageInputStyle}
+                            value={pageDisplayValue}
+                            onChange={(e) => this.setState({ pageInput: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const raw = st.pageInput;
+                              const v = parseInt(raw as string, 10);
+                              if (raw != null && String(raw).trim() !== "" && !isNaN(v) && v >= 1 && v <= totalPages) {
+                                this.setState({ spread: Math.floor((v - 1) / 2), pageInput: null, turning: null });
+                              } else {
+                                this.setState({ pageInput: null });
+                              }
+                              (e.target as HTMLInputElement).blur();
+                            }}
+                            onBlur={() => { if (this.state.pageInput != null) this.setState({ pageInput: null }); }}
+                            inputMode="numeric"
+                            aria-label="Go to page"
+                          />
+                          <span>of {totalPages}</span>
+                        </div>
+                        <button style={arrowBtn(spread >= totalSpreads - 1)} onClick={() => this.flip("next", spread, totalSpreads)}>&#8594;</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* BALANCE */}
+          {st.view === "balance" && (
+            <section>
+              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "18px" }}>
+                <div>
+                  <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: "0 0 3px", color: "#352f27" }}>Where your energy went</h2>
+                  <p style={{ margin: 0, fontSize: "14px", color: "#857c6c", maxWidth: "380px" }}>{mirror}</p>
+                </div>
+                <div style={{ display: "flex", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "11px", padding: "4px" }}>
+                  {[["week", "Week"], ["month", "Month"]].map(([k, label]) => (
+                    <button key={k} style={tabStyle(st.period === k)} onClick={(e) => this.setState({ period: e.currentTarget.dataset.k as string })} data-k={k}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1.05fr .95fr", gap: "20px", alignItems: "stretch" }}>
+                <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: "18px", padding: "22px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <svg viewBox="0 0 200 200" style={{ width: "100%", maxWidth: "380px", height: "auto", overflow: "visible" }}>
+                    {radar.rings.map((ring, i) => (
+                      <polygon key={i} points={ring.points} fill="none" stroke="#e7ddc8" strokeWidth="1" />
+                    ))}
+                    {radar.axes.map((ax, i) => (
+                      <line key={i} x1="100" y1="100" x2={ax.x} y2={ax.y} stroke="#e7ddc8" strokeWidth="1" />
+                    ))}
+                    <polygon points={radar.dataPoly} fill="rgba(187,139,78,.16)" stroke="#bb8b4e" strokeWidth="2" strokeLinejoin="round" />
+                    {radar.verts.map((v, i) => (
+                      <circle key={i} cx={v.x} cy={v.y} r="4.2" fill={v.color} stroke="#fbf7ec" strokeWidth="1.5" />
+                    ))}
+                    {radar.axes.map((ax, i) => (
+                      <text key={i} x={ax.lx} y={ax.ly} textAnchor={ax.anchor} style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "9px", fontWeight: 600, fill: "#6f6555" }}>
+                        {ax.label}
+                      </text>
+                    ))}
+                  </svg>
+                  <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "11px", color: "#a59c8c", marginTop: "4px" }}>{st.period === "week" ? "Jun 19 – 25, 2026" : "June 2026"}</div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: "18px", padding: "16px 18px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
+                    {legend.map((row, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "11px", padding: "8px 0", borderBottom: "1px solid #f0e8d6" }}>
+                        <span style={row.dotStyle} />
+                        <span style={{ flex: 1, fontWeight: 600, fontSize: "14px", color: "#4a443a" }}>{row.label}</span>
+                        <span style={{ fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#8a8275", width: "54px", textAlign: "right" }}>{row.stat}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ background: "#fbf2d3", border: "1.5px solid #ecdda6", borderRadius: "14px", padding: "15px 18px", boxShadow: "0 8px 20px rgba(58,52,43,.08)", transform: "rotate(-.7deg)" }}>
+                    <div style={{ fontFamily: "'Caveat',cursive", fontWeight: 700, fontSize: "21px", color: "#a9842f", lineHeight: 1, marginBottom: "5px" }}>note to self</div>
+                    <p style={{ margin: 0, fontSize: "14px", lineHeight: 1.5, color: "#6a5f3f" }}>{recap}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* SHARE */}
+          {st.view === "share" && (
+            <section>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "18px" }}>
+                <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: 0, color: "#352f27" }}>Share your proof</h2>
+                <div style={{ display: "flex", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "11px", padding: "4px" }}>
+                  {shareTabs.map((t) => (
+                    <button key={t.k as string} style={t.style} onClick={(e) => this.setState({ shareMode: e.currentTarget.dataset.k as string })} data-k={t.k}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {st.shareMode === "profile" && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+                  <div style={{ width: "100%", maxWidth: "720px", background: "#fffdf7", border: "1.5px solid #e9dfca", borderRadius: "22px", padding: "26px 28px", boxShadow: "0 14px 40px rgba(58,52,43,.12)", position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: "16px", right: "22px", fontFamily: "'Caveat',cursive", fontSize: "18px", color: "#cbb98f" }}>proof&#8202;of&#8202;skill</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
+                      <div style={{ width: "54px", height: "54px", borderRadius: "50%", background: "#3a342b", color: "#fdf7e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "20px" }}>MC</div>
+                      <div>
+                        <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "22px", color: "#352f27", lineHeight: 1.1 }}>Maya Chen</div>
+                        <div style={{ fontSize: "13.5px", color: "#8a8275" }}>Builder who grinds &middot; {monthCards.length} wins this month</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <svg viewBox="0 0 200 200" style={{ width: "240px", maxWidth: "100%", overflow: "visible" }}>
+                        {profileRadar.rings.map((ring, i) => (
+                          <polygon key={i} points={ring.points} fill="none" stroke="#ece3ce" strokeWidth="1" />
+                        ))}
+                        <polygon points={profileRadar.dataPoly} fill="rgba(187,139,78,.16)" stroke="#bb8b4e" strokeWidth="2" strokeLinejoin="round" />
+                        {profileRadar.verts.map((v, i) => (
+                          <circle key={i} cx={v.x} cy={v.y} r="4" fill={v.color} stroke="#fffdf7" strokeWidth="1.5" />
+                        ))}
+                        {profileRadar.axes.map((ax, i) => (
+                          <text key={i} x={ax.lx} y={ax.ly} textAnchor={ax.anchor} style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "9px", fontWeight: 600, fill: "#7a7060" }}>
+                            {ax.label}
+                          </text>
+                        ))}
+                      </svg>
+                    </div>
+                    <div style={{ display: "flex", gap: "14px", marginTop: "22px", paddingTop: "18px", borderTop: "1px dashed #e3d9c2" }}>
+                      {profileCards.map((c) => (
+                        <Card key={c.id} card={c} size="sm" />
+                      ))}
+                    </div>
+                  </div>
+                  <button style={exportBtnStyle} onClick={() => this.fireToast("Profile saved to camera roll ✓")}>Save profile image</button>
+                </div>
+              )}
+
+              {st.shareMode === "single" && shareCard && (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }}>
+                  <div style={{ fontFamily: "'Caveat',cursive", fontSize: "30px", color: "#bb8b4e", lineHeight: 1 }}>{shareHeadline}</div>
+                  <div>
+                    <Card card={shareCard} size="lg" />
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", maxWidth: "560px" }}>
+                    {shareChips.map((chip) => (
+                      <button key={chip.id} style={chip.style} onClick={(e) => this.setState({ shareCardId: e.currentTarget.dataset.id as string })} data-id={chip.id}>
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button style={exportBtnStyle} onClick={() => this.fireToast("Card copied — ready to post ✓")}>Share this card</button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ADD WIN */}
+          {st.view === "add" && (
+            <section>
+              {st.justAdded && (
+                <div style={{ maxWidth: "520px", margin: "24px auto", background: "#fbf7ec", border: "1.5px solid #cfe6d6", borderRadius: "20px", padding: "40px 28px", textAlign: "center", boxShadow: "0 10px 30px rgba(58,52,43,.08)" }}>
+                  <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#cdeedc", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3f9b6e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                  </div>
+                  <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "26px", color: "#352f27", marginBottom: "6px" }}>New card added!</div>
+                  <div style={{ fontSize: "14px", color: "#8a8275", marginBottom: "22px" }}>It&apos;s the freshest card in your binder.</div>
+                  <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+                    <button style={ghostBtnStyle} onClick={() => this.setState({ justAdded: false })}>Add another</button>
+                    <button style={primaryBtnStyle} onClick={() => this.setState({ view: "binder", justAdded: false })}>View binder</button>
+                  </div>
+                </div>
+              )}
+              {!st.justAdded && (
+                <div style={{ maxWidth: "560px", margin: "0 auto" }}>
+                  <div style={{ textAlign: "center", marginBottom: "22px" }}>
+                    <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>every win counts</div>
+                    <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "30px", margin: 0, color: "#352f27" }}>Capture a win</h2>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px", marginBottom: "22px" }}>
+                    <div style={{ position: "relative", width: "128px", height: "128px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {st.recording && <div style={{ position: "absolute", width: "104px", height: "104px", borderRadius: "50%", background: "#dd7d72", animation: "micPulse 1.4s ease-out infinite" }} />}
+                      <button style={micBtnStyle} onClick={() => this.toggleRecord()} aria-label="Record voice note">
+                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3" /><line x1="12" y1="14.5" x2="12" y2="20" /><line x1="8" y1="20" x2="16" y2="20" /></svg>
+                      </button>
+                    </div>
+                    <div style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", color: "#8a7a5c" }}>{st.recording ? "Listening… tap to stop" : "Tap to speak your win"}</div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px", color: "#bcb3a1" }}>
+                    <div style={{ flex: 1, height: "1px", background: "#e7ddc8" }} />
+                    <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "12px" }}>or type it</div>
+                    <div style={{ flex: 1, height: "1px", background: "#e7ddc8" }} />
+                  </div>
+
+                  <textarea
+                    style={{ width: "100%", boxSizing: "border-box", minHeight: "112px", resize: "vertical", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "14px", padding: "14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "15px", lineHeight: 1.5, color: "#3a342b", outline: "none" }}
+                    placeholder="What did you accomplish? A sentence — or a whole messy paragraph."
+                    value={st.addText}
+                    onChange={(e) => this.setState({ addText: e.target.value })}
+                  />
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", margin: "10px 0 18px" }}>
+                    <button style={summarizeBtnStyle} onClick={() => this.summarizeText()}>{st.summarizing ? "Summarizing…" : "✦ Summarize with AI"}</button>
+                  </div>
+
+                  <input
+                    style={{ width: "100%", boxSizing: "border-box", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "12px", padding: "12px 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "15px", color: "#3a342b", outline: "none", marginBottom: "16px" }}
+                    placeholder="Name this win (e.g. First WebSocket server)"
+                    value={st.addTitle}
+                    onChange={(e) => this.setState({ addTitle: e.target.value })}
+                  />
+
+                  <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", color: "#a59c8c", marginBottom: "8px" }}>Type</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "24px" }}>
+                    {TYPE_ORDER.map((k) => (
+                      <button
+                        key={k}
+                        style={{
+                          border: "1.5px solid " + (st.addType === k ? TYPES[k].deep : "#e2d8c2"),
+                          background: st.addType === k ? TYPES[k].fill : "#fbf7ec",
+                          color: st.addType === k ? TYPES[k].ink : "#8a8275",
+                          cursor: "pointer",
+                          borderRadius: "999px",
+                          padding: "7px 14px",
+                          fontFamily: "'Hanken Grotesk',sans-serif",
+                          fontWeight: 600,
+                          fontSize: "13px",
+                        }}
+                        onClick={(e) => this.setState({ addType: e.currentTarget.dataset.k as string })}
+                        data-k={k}
+                      >
+                        {TYPES[k].label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button style={addSubmitStyle} onClick={() => this.submitAdd()}>Add to binder</button>
+                </div>
+              )}
+            </section>
+          )}
         </div>
-      </main>
-    </div>
-  );
+
+        {/* TOAST */}
+        {st.showToast && (
+          <div style={{ position: "fixed", bottom: "26px", left: "50%", transform: "translateX(-50%)", background: "#3a342b", color: "#fdf7e8", padding: "11px 20px", borderRadius: "999px", fontSize: "14px", fontWeight: 600, boxShadow: "0 10px 30px rgba(58,52,43,.3)", zIndex: 60 }}>
+            {st.toastText}
+          </div>
+        )}
+
+        {/* DETAIL MODAL */}
+        {sel && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={() => this.setState({ selectedId: null })}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }} onClick={(e) => e.stopPropagation()}>
+              <Card card={sel} size="lg" />
+              <button
+                style={{ background: "#fffaf8", color: "#b0564a", border: "1.5px solid #e0b3aa", borderRadius: "11px", padding: "11px 24px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "14px", cursor: "pointer", boxShadow: "0 8px 20px rgba(58,52,43,.18)" }}
+                onClick={() => { if (st.selectedId) this.deleteCard(st.selectedId); }}
+              >
+                Delete card
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 }

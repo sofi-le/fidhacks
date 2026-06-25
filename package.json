@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "next dev -p 3939",
+    "dev:api": "npm --prefix backend run dev",
+    "setup": "npm install && npm --prefix backend install && npm --prefix backend run seed",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3939",
     "lint": "eslint"
   },
   "dependencies": {
@@ -19,6 +22,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",

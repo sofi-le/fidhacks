@@ -22,6 +22,7 @@ import {
   getAllCards,
   getSkillsSeen,
   getBalance,
+  deleteCard,
   resetDemo,
 } from "./db.js";
 import { draftCard, useMock } from "./extract.js";
@@ -67,6 +68,13 @@ app.post("/api/extract", async (req, res) => {
 });
 
 app.get("/api/cards", (_req, res) => res.json(getAllCards()));
+
+// Delete one card (the binder's "Delete card" button)
+app.delete("/api/cards/:id", (req, res) => {
+  const removed = deleteCard(req.params.id);
+  if (!removed) return res.status(404).json({ error: "card not found" });
+  res.json({ ok: true });
+});
 
 app.get("/api/skills", (_req, res) => res.json(getSkillsSeen()));
 

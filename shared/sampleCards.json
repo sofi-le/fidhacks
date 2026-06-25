@@ -1,74 +1,16 @@
 [
-  {
-    "id": "11111111-1111-4111-8111-111111111111",
-    "timestamp": "2026-06-23T14:12:00.000Z",
-    "type": "Technical",
-    "win": "Got the SQLite memory store saving cards and skills in one atomic write.",
-    "overcame": "Kept corrupting the skills table on insert until I wrapped both writes in a transaction.",
-    "skill": "SQLite transactions"
-  },
-  {
-    "id": "22222222-2222-4222-8222-222222222222",
-    "timestamp": "2026-06-23T16:40:00.000Z",
-    "type": "Technical",
-    "win": "Wired the Express backend to talk to the Anthropic API and return clean Card JSON.",
-    "overcame": "The model kept wrapping JSON in prose — fixed it by forcing a JSON-only system prompt.",
-    "skill": "API integration"
-  },
-  {
-    "id": "33333333-3333-4333-8333-333333333333",
-    "timestamp": "2026-06-23T19:05:00.000Z",
-    "type": "Academic",
-    "win": "Finally understood how eigenvectors fall out of the covariance matrix in PCA.",
-    "overcame": "Stared at the linear algebra for two hours before the geometric picture clicked.",
-    "skill": "Linear algebra"
-  },
-  {
-    "id": "44444444-4444-4444-8444-444444444444",
-    "timestamp": "2026-06-23T21:30:00.000Z",
-    "type": "Social",
-    "win": "Pitched our concept to the team and got everyone aligned on the trading-card idea.",
-    "overcame": "I was nervous to push back on the leaderboard idea, but I made the case anyway.",
-    "skill": "Public speaking"
-  },
-  {
-    "id": "55555555-5555-4555-8555-555555555555",
-    "timestamp": "2026-06-24T09:15:00.000Z",
-    "type": "Technical",
-    "win": "Built the type-bucketing logic that sorts a win into its life domain.",
-    "overcame": "Had to design the semantic-memory table before the sorting made any sense.",
-    "skill": "Data modeling"
-  },
-  {
-    "id": "66666666-6666-4666-8666-666666666666",
-    "timestamp": "2026-06-24T11:50:00.000Z",
-    "type": "Academic",
-    "win": "Debugged the linear-algebra bug in the radar chart math on my own.",
-    "overcame": "Same matrix math that stopped me cold yesterday — this time I just fixed it.",
-    "skill": "Linear algebra"
-  },
-  {
-    "id": "77777777-7777-4777-8777-777777777777",
-    "timestamp": "2026-06-24T13:20:00.000Z",
-    "type": "Financial",
-    "win": "Set up a simple budget to track the team's snack and supply spend for the weekend.",
-    "overcame": "Never tracked a shared budget before — wasn't sure how to split shared costs.",
-    "skill": "Budgeting"
-  },
-  {
-    "id": "88888888-8888-4888-8888-888888888888",
-    "timestamp": "2026-06-24T15:45:00.000Z",
-    "type": "Hobbies",
-    "win": "Sketched the card-back art for the binder during a break and people loved it.",
-    "overcame": "Hadn't drawn in months and almost didn't share it.",
-    "skill": "Illustration"
-  },
-  {
-    "id": "99999999-9999-4999-8999-999999999999",
-    "timestamp": "2026-06-24T22:10:00.000Z",
-    "type": "Technical",
-    "win": "Shipped the whole memory + extraction pipeline end to end before midnight.",
-    "overcame": "Three hours of CORS and JSON-parse errors that nearly broke the demo.",
-    "skill": "Debugging"
-  }
+  { "id": "c1",  "timestamp": "2026-06-24T12:00:00.000Z", "type": "Technical", "skill": "Solo prod deploy",        "win": "Pushed to production alone and nothing broke.",          "overcame": "A failing CI pipeline and zero teammates online at 2am." },
+  { "id": "c2",  "timestamp": "2026-06-22T12:00:00.000Z", "type": "Social",    "skill": "FidHacks pitch",          "win": "Pitched to a room of 50 and landed the laughs.",         "overcame": "Stage fright that usually freezes me up." },
+  { "id": "c3",  "timestamp": "2026-06-23T12:00:00.000Z", "type": "Academic",  "skill": "Read a dense ML paper",   "win": "Finished the attention paper end to end, actually got it.", "overcame": "Three re-reads and a lot of pausing to Google." },
+  { "id": "c4",  "timestamp": "2026-06-20T12:00:00.000Z", "type": "Technical", "skill": "Killed a race condition", "win": "Tracked down the heisenbug and made it reproducible.",    "overcame": "Two days of \"works on my machine\"." },
+  { "id": "c5",  "timestamp": "2026-06-21T12:00:00.000Z", "type": "Hobbies",   "skill": "First 5k",                "win": "Ran the whole thing without stopping.",                  "overcame": "A side stitch at km 3 and the urge to quit." },
+  { "id": "c6",  "timestamp": "2026-06-19T12:00:00.000Z", "type": "Financial", "skill": "Budget that stuck",       "win": "Two months on the same budget and it held.",             "overcame": "My habit of forgetting to log small spends." },
+  { "id": "c7",  "timestamp": "2026-06-12T12:00:00.000Z", "type": "Technical", "skill": "First WebSocket server",  "win": "Got real-time messages flowing both ways.",              "overcame": "Three hours lost to a CORS wall." },
+  { "id": "c8",  "timestamp": "2026-06-09T12:00:00.000Z", "type": "Academic",  "skill": "Aced linear algebra",     "win": "Walked out of the final actually confident.",            "overcame": "Eigenvalues that never clicked until week 9." },
+  { "id": "c9",  "timestamp": "2026-06-14T12:00:00.000Z", "type": "Social",    "skill": "Cold-emailed a mentor",   "win": "Sent the scary email and she said yes.",                 "overcame": "The voice telling me not to bother her." },
+  { "id": "c10", "timestamp": "2026-06-07T12:00:00.000Z", "type": "Hobbies",   "skill": "Watercolor #4",           "win": "Finished a small landscape I actually like.",            "overcame": "The urge to overwork every wash." },
+  { "id": "c11", "timestamp": "2026-06-16T12:00:00.000Z", "type": "Financial", "skill": "Negotiated a raise",      "win": "Asked for the number and got it.",                       "overcame": "A decade of avoiding the money talk." },
+  { "id": "c12", "timestamp": "2026-06-05T12:00:00.000Z", "type": "Academic",  "skill": "TA'd my first section",   "win": "Taught 20 students and they got it.",                    "overcame": "Imposter syndrome the whole walk over." },
+  { "id": "c13", "timestamp": "2026-06-03T12:00:00.000Z", "type": "Technical", "skill": "Learned React hooks",     "win": "Refactored class components to hooks, cleanly.",         "overcame": "A mental model that fought me for a week." },
+  { "id": "c14", "timestamp": "2026-06-11T12:00:00.000Z", "type": "Hobbies",   "skill": "Three guitar songs",      "win": "Can play three songs start to finish now.",              "overcame": "Finger cramps and a stubborn F chord." }
 ]

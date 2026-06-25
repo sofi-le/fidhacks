@@ -80,6 +80,12 @@ export function getRecentCards(limit = 12) {
   return selectRecentCards.all(limit);
 }
 
+/** Delete one card by id. Returns true if a row was removed. */
+const deleteCardStmt = db.prepare(`DELETE FROM cards WHERE id = ?`);
+export function deleteCard(id) {
+  return deleteCardStmt.run(id).changes > 0;
+}
+
 /** Cards within a period ("week" | "month" | "all"), newest first. Feeds the recap. */
 export function getCardsInPeriod(period = "all", limit = 50) {
   const since = periodStartISO(period);
