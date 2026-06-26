@@ -3,36 +3,36 @@
     "id": "c1",
     "timestamp": "2026-06-24T12:00:00.000Z",
     "type": "Career",
-    "skill": "Solo prod deploy",
-    "win": "Pushed to production alone and nothing broke."
+    "skill": "Got Fidternship",
+    "win": "My team won the HackAThon and we all got internships"
   },
   {
     "id": "c2",
     "timestamp": "2026-06-22T12:00:00.000Z",
     "type": "Social & Family",
-    "skill": "FidHacks pitch",
-    "win": "Pitched to a room of 50 and landed the laughs."
+    "skill": "Called My Mom",
+    "win": "Facetimed my mom and talked for an hour"
   },
   {
     "id": "c3",
     "timestamp": "2026-06-23T12:00:00.000Z",
     "type": "Academic",
-    "skill": "Read a dense ML paper",
-    "win": "Finished the attention paper end to end, actually got it."
+    "skill": "Completed a pesky CS assignment",
+    "win": "Worked hard on the problem set"
   },
   {
     "id": "c4",
     "timestamp": "2026-06-20T12:00:00.000Z",
-    "type": "Career",
-    "skill": "Killed a race condition",
-    "win": "Tracked down the heisenbug and made it reproducible."
+    "type": "Health & Wellness",
+    "skill": "Passed my fitness test",
+    "win": "Ran <6 minute mile"
   },
   {
     "id": "c5",
     "timestamp": "2026-06-21T12:00:00.000Z",
     "type": "Hobbies",
-    "skill": "First 5k",
-    "win": "Ran the whole thing without stopping."
+    "skill": "Painted a Mountain Landscape",
+    "win": "Completed a painting of Denali"
   },
   {
     "id": "c6",
@@ -45,8 +45,8 @@
     "id": "c7",
     "timestamp": "2026-06-12T12:00:00.000Z",
     "type": "Career",
-    "skill": "First WebSocket server",
-    "win": "Got real-time messages flowing both ways."
+    "skill": "Networked with a Data Engineer",
+    "win": "Got out of my confort zone and learned something new!"
   },
   {
     "id": "c8",
@@ -59,22 +59,22 @@
     "id": "c9",
     "timestamp": "2026-06-14T12:00:00.000Z",
     "type": "Social & Family",
-    "skill": "Cold-emailed a mentor",
-    "win": "Sent the scary email and she said yes."
+    "skill": "Went for ice cream with my friends",
+    "win": "Sent the invitation and my friends said yes."
   },
   {
     "id": "c10",
     "timestamp": "2026-06-07T12:00:00.000Z",
     "type": "Hobbies",
-    "skill": "Watercolor #4",
-    "win": "Finished a small landscape I actually like."
+    "skill": "Learned Hot Cross Buns on Piano",
+    "win": "Got out of my comfort zone and challenged myself."
   },
   {
     "id": "c11",
     "timestamp": "2026-06-16T12:00:00.000Z",
     "type": "Financial",
-    "skill": "Negotiated a raise",
-    "win": "Asked for the number and got it."
+    "skill": "Opened a high yield savings account",
+    "win": "Making my money work harder."
   },
   {
     "id": "c12",
@@ -87,8 +87,8 @@
     "id": "c13",
     "timestamp": "2026-06-03T12:00:00.000Z",
     "type": "Career",
-    "skill": "Learned React hooks",
-    "win": "Refactored class components to hooks, cleanly."
+    "skill": "Got a part-time job",
+    "win": "Making bank!"
   },
   {
     "id": "c14",
