@@ -238,7 +238,29 @@ export function ShareScreen({ cards = [], user = { name: "Maya Chen", initials: 
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<string[] | null>(loadShareSel);   // null => use default
   const [dragOver, setDragOver] = useState(false);
+  const [saving, setSaving] = useState(false);
   const dragId = useRef<string | null>(null);
+  const profileRef = useRef<HTMLDivElement | null>(null);
+
+  // Rasterize the profile panel to a PNG and download it.
+  const saveProfileImage = async () => {
+    const node = profileRef.current;
+    if (!node || saving) return;
+    setSaving(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(node, { backgroundColor: "#fffdf7", scale: 2, useCORS: true });
+      const link = document.createElement("a");
+      link.download = `journeydex-${user.name.toLowerCase().replace(/\s+/g, "-")}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      if (onSaveProfile) onSaveProfile();
+    } catch (err) {
+      console.error("[share] profile capture failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const byId = (id: string) => cards.find((c) => c.id === id);
   const defaultSel = cards.slice(0, 3).map((c) => c.id);
@@ -269,7 +291,7 @@ export function ShareScreen({ cards = [], user = { name: "Maya Chen", initials: 
       <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-start" }}>
         {/* LEFT — profile */}
         <div style={{ flex: "1 1 440px", minWidth: 320, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "#fffdf7", border: "1.5px solid #e9dfca", borderRadius: 22, padding: "26px 28px", boxShadow: "0 14px 40px rgba(58,52,43,.12)", position: "relative", overflow: "hidden" }}>
+          <div ref={profileRef} style={{ background: "#fffdf7", border: "1.5px solid #e9dfca", borderRadius: 22, padding: "26px 28px", boxShadow: "0 14px 40px rgba(58,52,43,.12)", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 16, right: 22, fontFamily: '"Caveat",cursive', fontSize: 18, color: "#cbb98f" }}>journeydex</div>
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
               <div style={{ width: 54, height: 54, borderRadius: "50%", background: "#3a342b", color: "#fdf7e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 20 }}>{user.initials}</div>
@@ -313,7 +335,7 @@ export function ShareScreen({ cards = [], user = { name: "Maya Chen", initials: 
               )}
             </div>
           </div>
-          <button onClick={() => onSaveProfile && onSaveProfile()} style={{ background: "#3a342b", color: "#fdf7e8", border: "none", borderRadius: 12, padding: "12px 26px", fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 600, fontSize: 15, cursor: "pointer", boxShadow: "0 8px 22px rgba(58,52,43,.18)" }}>Save profile image</button>
+          <button onClick={saveProfileImage} disabled={saving} style={{ background: "#3a342b", color: "#fdf7e8", border: "none", borderRadius: 12, padding: "12px 26px", fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 600, fontSize: 15, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1, boxShadow: "0 8px 22px rgba(58,52,43,.18)" }}>{saving ? "Saving…" : "Save profile image"}</button>
         </div>
 
         {/* RIGHT — gallery */}
