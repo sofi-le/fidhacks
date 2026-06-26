@@ -39,28 +39,35 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
 });
 
-// Extracts card from transcript: transcript + memory -> AI drafted card -> generate image -> save card
+// The loop: transcript + memory -> AI summarizes the win (and classifies/names
+// when the user didn't). The optional `skill` (the user's own title) and `type`
+// in the body OVERRIDE the AI — so a typed title is used verbatim instead of the
+// model reusing a past skill tag.
 app.post("/api/extract", async (req, res) => {
   try {
-    const transcript = (req.body?.transcript || "").toString().trim();
+    const b = req.body || {};
+    const transcript = (b.transcript || "").toString().trim();
     if (!transcript) return res.status(400).json({ error: "transcript is required" });
 
     // pull memory
     const recentCards = getRecentCards(12);
     const skillsSeen = getSkillsSeen();
 
-    // AI drafts card
+    // AI drafts card (mainly the win summary)
     const draft = await draftCard(transcript, { recentCards, skillsSeen });
 
-    // assemble the Card and persist (episodic + semantic, atomic)
+    const oneLine = (s, max) => s.toString().replace(/\s+/g, " ").trim().slice(0, max);
+    const userSkill = typeof b.skill === "string" && b.skill.trim() ? oneLine(b.skill, 80) : null;
+
+    // assemble the Card and persist (episodic + semantic, atomic).
+    // User-provided title/type win over the AI's guesses.
     const card = {
       id: randomUUID(),
       timestamp: new Date().toISOString(),
-      type: draft.type,
+      type: TYPES.includes(b.type) ? b.type : draft.type,
       win: draft.win,
-      skill: draft.skill,
+      skill: userSkill || draft.skill,
     };
-    // save to database
     saveCard(card);
 
     res.json(card);

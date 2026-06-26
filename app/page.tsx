@@ -46,6 +46,7 @@ type S = {
   addTitle: string;
   addType: string;
   addText: string;
+  addImage: string | undefined; // optional art for the card being added (data URL)
   recording: boolean;
   summarizing: boolean;
   revealCard: UiCard | null; // the freshly-minted card shown in the pack-open animation
@@ -103,6 +104,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
     addTitle: "",
     addType: "career",
     addText: "",
+    addImage: undefined,
     recording: false,
     summarizing: false,
     revealCard: null,
@@ -163,46 +165,65 @@ export default class JourneyDex extends React.Component<unknown, S> {
     this.setState({ editing: false });
   }
 
-  // Card art is client-side only: read the picked file, downscale it on a canvas
-  // (keeps the data URL small), and store it in localStorage keyed by card id —
-  // it never touches the backend.
+  // Read a picked image file and downscale it on a canvas (keeps the data URL
+  // small). Resolves to a JPEG data URL. Card art is client-side only.
+  downscaleImage(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith("image/")) return reject(new Error("not an image"));
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 800;
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return resolve(reader.result as string);
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.onerror = () => reject(new Error("decode failed"));
+        img.src = reader.result as string;
+      };
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Persist a card's art to localStorage (keyed by id) and reflect it on the card.
+  storeCardImage(id: string, dataUrl: string) {
+    this.setState((st) => {
+      const cardImages = { ...st.cardImages, [id]: dataUrl };
+      try {
+        localStorage.setItem("card_images", JSON.stringify(cardImages));
+      } catch {}
+      return { cardImages, cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: dataUrl } : c)) };
+    });
+  }
+
+  // Tap a card's art in the detail modal -> set/replace its image.
   handleImagePick(id: string, file: File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      this.fireToast("That's not an image file");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const MAX = 800;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        let dataUrl = reader.result as string;
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
-          dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        }
-        this.setState((st) => {
-          const cardImages = { ...st.cardImages, [id]: dataUrl };
-          try {
-            localStorage.setItem("card_images", JSON.stringify(cardImages));
-          } catch {}
-          return { cardImages, cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: dataUrl } : c)) };
-        });
+    this.downscaleImage(file).then(
+      (dataUrl) => {
+        this.storeCardImage(id, dataUrl);
         this.fireToast("Image added ✓");
-      };
-      img.onerror = () => this.fireToast("Couldn't read that image");
-      img.src = reader.result as string;
-    };
-    reader.onerror = () => this.fireToast("Couldn't read that file");
-    reader.readAsDataURL(file);
+      },
+      () => this.fireToast("Couldn't read that image")
+    );
+  }
+
+  // Pick art while composing a new card (before it has an id).
+  pickAddImage(file: File | undefined) {
+    if (!file) return;
+    this.downscaleImage(file).then(
+      (dataUrl) => this.setState({ addImage: dataUrl }),
+      () => this.fireToast("Couldn't read that image")
+    );
   }
 
   async saveEdit() {
@@ -280,15 +301,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
     }
   }
 
-  summarizeText() {
-    const text = (this.state.addText || "").trim();
-    if (!text || this.state.summarizing) return;
-    this.setState({ summarizing: true });
-    // Condense locally; the backend AI does the real rewrite when you submit.
-    const out = text.split(". ")[0].slice(0, 140);
-    this.setState({ addText: out, summarizing: false });
-  }
-
   async submitAdd() {
     const title = (this.state.addTitle || "").trim();
     const text = (this.state.addText || "").trim();
@@ -305,12 +317,23 @@ export default class JourneyDex extends React.Component<unknown, S> {
         if (this._recog) this._recog.stop();
       } catch {}
     }
+    const img = this.state.addImage;
     this.setState({ summarizing: true });
     try {
-      // The backend's AI + memory mint the real card and persist it.
-      const card = await extractCard(`${title}. ${text}`);
+      // The backend AI summarizes the description into the win; the user's typed
+      // title + selected type are sent as overrides so they're used verbatim.
+      const card = await extractCard(text, { skill: title, type: this.state.addType });
+      // Attach the chosen art (client-side, keyed by the new card's id).
+      if (img) this.storeCardImage(card.id, img);
       await this.loadCards();
-      this.setState({ revealCard: card, addTitle: "", addText: "", recording: false, summarizing: false });
+      this.setState({
+        revealCard: img ? { ...card, imageUrl: img } : card,
+        addTitle: "",
+        addText: "",
+        addImage: undefined,
+        recording: false,
+        summarizing: false,
+      });
     } catch {
       this.setState({ summarizing: false });
       this.fireToast("Couldn't add the card — backend offline?");
@@ -590,21 +613,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
       border: st.recording ? "2px solid #dd7d72" : "2px solid #ecdcaf",
       boxShadow: st.recording ? "0 12px 28px rgba(221,125,114,.45)" : "0 8px 22px rgba(58,52,43,.12)",
     };
-    const summarizeBtnStyle: React.CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: "6px",
-      border: "1.5px solid #e2d3ad",
-      background: st.summarizing ? "#f3ecd6" : "#fbf1c9",
-      color: "#9a7b1f",
-      cursor: st.summarizing ? "default" : "pointer",
-      borderRadius: "999px",
-      padding: "8px 15px",
-      fontFamily: '"Hanken Grotesk",sans-serif',
-      fontWeight: 600,
-      fontSize: "13px",
-      opacity: st.summarizing ? 0.7 : 1,
-    };
     const addSubmitStyle: React.CSSProperties = {
       width: "100%",
       background: "#3a342b",
@@ -823,7 +831,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
                 initials: "MC",
                 tagline: `Builder who grinds · ${st.cards.filter((c) => c.date >= "2026-06-01").length} wins this month`,
               }}
-              onSaveProfile={() => this.fireToast("Profile saved to camera roll ✓")}
+              onSaveProfile={() => this.fireToast("Profile image downloaded ✓")}
             />
           )}
 
@@ -858,9 +866,8 @@ export default class JourneyDex extends React.Component<unknown, S> {
                     value={st.addText}
                     onChange={(e) => this.setState({ addText: e.target.value })}
                   />
-
-                  <div style={{ display: "flex", justifyContent: "flex-end", margin: "10px 0 18px" }}>
-                    <button style={summarizeBtnStyle} onClick={() => this.summarizeText()}>{st.summarizing ? "Summarizing…" : "✦ Summarize with AI"}</button>
+                  <div style={{ fontSize: "12px", color: "#a59c8c", margin: "8px 2px 18px" }}>
+                    The AI shortens this into your card&apos;s one-line win.
                   </div>
 
                   <input
@@ -892,6 +899,33 @@ export default class JourneyDex extends React.Component<unknown, S> {
                         {TYPES[k].label}
                       </button>
                     ))}
+                  </div>
+
+                  <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", color: "#a59c8c", marginBottom: "8px" }}>
+                    Picture <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
+                    <label style={{ ...ghostBtnStyle, padding: "10px 16px", fontSize: "14px", display: "inline-block" }}>
+                      {st.addImage ? "Change picture" : "Add a picture"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        onChange={(e) => { this.pickAddImage(e.target.files?.[0]); e.currentTarget.value = ""; }}
+                      />
+                    </label>
+                    {st.addImage && (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={st.addImage} alt="card art preview" style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "8px", border: "1.5px solid #e6dcc6" }} />
+                        <button
+                          style={{ background: "transparent", border: "none", color: "#b0564a", cursor: "pointer", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "13px" }}
+                          onClick={() => this.setState({ addImage: undefined })}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
                   </div>
 
                   <button style={addSubmitStyle} onClick={() => this.submitAdd()}>Add to binder</button>

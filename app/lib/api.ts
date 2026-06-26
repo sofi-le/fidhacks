@@ -54,12 +54,22 @@ export async function getCards(): Promise<UiCard[]> {
   return data.map(fromApi);
 }
 
-// Capture a win: send a transcript, the backend AI + memory mint the card.
-export async function extractCard(transcript: string): Promise<UiCard> {
+// Capture a win: the backend AI summarizes the transcript into the win. An
+// optional `skill` (the user's own title) and `type` override the AI so the
+// typed title/type are used verbatim. `type` is capitalized for the contract.
+export async function extractCard(
+  transcript: string,
+  opts?: { skill?: string; type?: string }
+): Promise<UiCard> {
+  const t = opts?.type ? opts.type.toLowerCase() : undefined;
   const r = await fetch(`${API_BASE}/api/extract`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ transcript }),
+    body: JSON.stringify({
+      transcript,
+      skill: opts?.skill,
+      type: t ? TYPE_LABEL[t] : undefined,
+    }),
   });
   if (!r.ok) throw new Error(`POST /api/extract ${r.status}`);
   return fromApi(await r.json());
