@@ -15,6 +15,14 @@ const TYPES: Record<string, { label: string; fill: string; deep: string; ink: st
   "health & wellness": { label: "Health & Wellness", fill: "#d4f0e0", deep: "#3aaa6a", ink: "#1f7a48" },
 };
 const TYPE_ORDER = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
+
+// The seed cards (ids c1..c14) ship with hardcoded art in public/card_images/.
+// A user-uploaded image (localStorage) takes precedence over these defaults.
+const HARDCODED_IMAGE_IDS = new Set(["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14"]);
+function hardcodedImage(id: string): string | undefined {
+  return HARDCODED_IMAGE_IDS.has(id) ? `/card_images/${id}.jpg` : undefined;
+}
+
 const FAV_KEY = "pos_favorites";
 function loadFavs(): string[] {
   try {
@@ -125,8 +133,9 @@ export default class JourneyDex extends React.Component<unknown, S> {
   async loadCards() {
     try {
       const cards = await getCards();
-      // Merge in client-side card art (localStorage), keyed by card id.
-      this.setState((st) => ({ cards: cards.map((c) => ({ ...c, imageUrl: st.cardImages[c.id] })) }));
+      // Card art: a user-uploaded image (localStorage) wins, else the seed
+      // card's hardcoded default in public/card_images/.
+      this.setState((st) => ({ cards: cards.map((c) => ({ ...c, imageUrl: st.cardImages[c.id] || hardcodedImage(c.id) })) }));
     } catch {
       this.fireToast("Couldn't reach the backend — is it running on :8787?");
     }
