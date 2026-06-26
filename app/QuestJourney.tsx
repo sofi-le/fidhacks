@@ -86,11 +86,14 @@ const fmtDate = (d?: string) => {
   return MON[+p[1] - 1] + " " + +p[2];
 };
 
-// smooth Catmull-Rom path through a list of {x,y} points
-function smoothPath(pts: Pt[]) {
-  if (!pts || pts.length < 2) return "";
+// smooth Catmull-Rom path through a list of {x,y} points.
+// endIdx: draw only up to pts[endIdx] (inclusive), but use full pts for control points
+// so a partial solid path stays perfectly on top of the full dashed path.
+function smoothPath(pts: Pt[], endIdx?: number) {
+  const end = endIdx !== undefined ? endIdx : pts.length - 1;
+  if (!pts || pts.length < 2 || end < 1) return "";
   let d = "M" + pts[0].x.toFixed(1) + "," + pts[0].y.toFixed(1);
-  for (let i = 0; i < pts.length - 1; i++) {
+  for (let i = 0; i < end; i++) {
     const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
     const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
     const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
@@ -251,10 +254,11 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
   const lockedIds = new Set<string>();
 
   // ---- geometry: compact, organic vertical positions ----
-  const stepX = 252, leftPad = 156, cardW = 190, cardH = 236;
+  const stepX = 252, leftPad = 220, cardW = 190, cardH = 236;
   const Y_RAW = [64, 252, 150, 292, 92, 232, 176, 284];
-  const xs = challenges.map((q, i) => leftPad + i * stepX);
-  let ys = challenges.map((q, i) => Y_RAW[i % Y_RAW.length]);
+  const sorted = [...challenges].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const xs = sorted.map((q, i) => leftPad + i * stepX);
+  let ys = sorted.map((q, i) => Y_RAW[i % Y_RAW.length]);
   const nodeMin = ys.length ? Math.min(...ys) : 0;
   const nodeMax = ys.length ? Math.max(...ys) : 0;
   const midNode = (nodeMin + nodeMax) / 2;
@@ -271,11 +275,11 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
   const starPt = { x: leftPad + N * stepX + 32, y: anchorY };
   const canvasW = Math.max(880, starPt.x + 150);
   const canvasH = Math.max(340, Math.round(maxBottom + BOT_M));
-  const pts: Pt[] = [startPt, ...challenges.map((q, i) => ({ x: xs[i], y: ys[i] })), starPt];
+  const pts: Pt[] = [startPt, ...sorted.map((q, i) => ({ x: xs[i], y: ys[i] })), starPt];
   const dashedPath = smoothPath(pts);
   let progIdx = -1;
-  challenges.forEach((q, i) => { if (q.status === "completed" || q.status === "in_progress") progIdx = i; });
-  const solidPath = progIdx >= 0 ? smoothPath(pts.slice(0, progIdx + 2)) : "";
+  sorted.forEach((q, i) => { if (q.status === "completed" || q.status === "in_progress") progIdx = i; });
+  const solidPath = progIdx >= 0 ? smoothPath(pts, progIdx + 1) : "";
 
   const completingQ = challenges.find((q) => q.id === completingId) || null;
 
@@ -360,7 +364,7 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
                 {solidPath && <path d={solidPath} fill="none" stroke="#9aa84a" strokeWidth={4} strokeLinecap="round" />}
               </svg>
 
-              {challenges.map((q, i) => {
+              {sorted.map((q, i) => {
                 const locked = lockedIds.has(q.id);
                 const m = locked ? LOCKED_META : META[q.status];
                 const t = TYPES[q.type] || TYPES.academic;
@@ -372,7 +376,7 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
                 const isDone = q.status === "completed";
                 const dateText = isDone
                   ? "Done " + fmtDate(q.completedDate || q.date)
-                  : q.deadline ? "Finish by " + fmtDate(q.deadline) : "No date set";
+                  : q.deadline ? "Due " + fmtDate(q.deadline) : "No date set";
 
                 return (
                   <React.Fragment key={q.id}>
@@ -391,18 +395,19 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
                       {q.status === "not_started" && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#cbc2af" }} />}
                     </div>
                     {/* quest card */}
-                    <div onClick={() => cardClick(q, locked)} style={{
-                      position: "absolute", left: nx - cardW / 2, top: cardTop, width: cardW, height: cardH,
-                      boxSizing: "border-box", display: "flex", flexDirection: "column", overflow: "hidden",
-                      background: tc.soft, border: "2px solid " + tc.deep, borderRadius: 15, padding: 11,
-                      boxShadow: dim ? "0 5px 16px rgba(58,52,43,.07)" : "0 9px 22px rgba(58,52,43,.13)",
-                      cursor: locked ? "default" : "pointer", zIndex: 3,
-                    }}>
+                    <div style={{ position: "absolute", left: nx - cardW / 2, top: cardTop, width: cardW, height: cardH, zIndex: 3 }}>
                       <button onClick={(e) => { e.stopPropagation(); removeChallenge(q.id); }} aria-label="Remove quest" style={{
                         position: "absolute", top: -8, right: -8, zIndex: 6, width: 22, height: 22, borderRadius: "50%",
                         display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0,
                         background: "#fffdf7", border: "1.5px solid #e2d8c2", color: "#b3aa97", boxShadow: "0 2px 6px rgba(58,52,43,.14)",
                       }}>×</button>
+                    <div onClick={() => cardClick(q, locked)} style={{
+                      width: "100%", height: "100%",
+                      boxSizing: "border-box", display: "flex", flexDirection: "column", overflow: "hidden",
+                      background: tc.soft, border: "2px solid " + tc.deep, borderRadius: 15, padding: 11,
+                      boxShadow: dim ? "0 5px 16px rgba(58,52,43,.07)" : "0 9px 22px rgba(58,52,43,.13)",
+                      cursor: locked ? "default" : "pointer",
+                    }}>
 
                       {/* banner */}
                       <div style={{ display: "flex", alignItems: "center", gap: 7, background: tc.fill, color: tc.ink, borderRadius: 9, padding: "5px 9px", marginBottom: 7, fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 11.5, letterSpacing: ".2px" }}>
@@ -448,6 +453,7 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
                           cursor: "pointer", boxShadow: "0 4px 12px rgba(94,107,40,.22)",
                         }}>+ Add as card to binder</button>
                       )}
+                    </div>
                     </div>
                   </React.Fragment>
                 );
