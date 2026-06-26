@@ -10,6 +10,7 @@ import {
   extractCard,
   deleteCardApi,
   updateCardApi,
+  setCardFavorite,
   createCard,
   uploadCardImage,
   seedSampleCardsIfEmpty,
@@ -58,20 +59,6 @@ function dailyAffirmation(): string {
   return AFFIRMATIONS[((dayOfYear % AFFIRMATIONS.length) + AFFIRMATIONS.length) % AFFIRMATIONS.length];
 }
 
-const FAV_KEY = "pos_favorites";
-function loadFavs(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(FAV_KEY) || "[]") || [];
-  } catch {
-    return [];
-  }
-}
-function saveFavs(f: string[]) {
-  try {
-    localStorage.setItem(FAV_KEY, JSON.stringify(f));
-  } catch {}
-}
-
 type S = {
   view: string;
   filter: string;
@@ -84,7 +71,6 @@ type S = {
   selectedId: string | null;
   showToast: boolean;
   toastText: string;
-  favorites: string[];
   fitScale: number;
   fitH: number;
   pageInput: string | null;
@@ -156,7 +142,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
     selectedId: null,
     showToast: false,
     toastText: "",
-    favorites: [],
     fitScale: 1,
     fitH: 520,
     pageInput: null,
@@ -513,7 +498,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
   }
 
   componentDidMount() {
-    this.setState({ favorites: loadFavs() });
     // Auth: react to sign-in/out (incl. the Google OAuth redirect on load).
     this._authSub = supabase.auth.onAuthStateChange((evt, session) => this.handleSession(session, evt)).data.subscription;
     supabase.auth.getSession().then(({ data }) => this.handleSession(data.session));
@@ -570,6 +554,23 @@ export default class JourneyDex extends React.Component<unknown, S> {
     this._ft = setTimeout(() => {
       this.setState({ spread: page + (dir === "next" ? 1 : -1), turning: null, pageInput: null });
     }, 470);
+  }
+
+  // Star / unstar a card. Favorite state lives on the card row (per-user), so the
+  // count can never drift from the cards shown and it survives sign-out/in. We
+  // update optimistically and revert if the write fails.
+  async toggleFavId(id: string) {
+    const card = this.state.cards.find((c) => c.id === id);
+    if (!card) return;
+    const next = !card.favorite;
+    this.setState((st) => ({ cards: st.cards.map((c) => (c.id === id ? { ...c, favorite: next } : c)) }));
+    try {
+      await setCardFavorite(id, next);
+    } catch (err) {
+      console.error("[favorite]", err);
+      this.setState((st) => ({ cards: st.cards.map((c) => (c.id === id ? { ...c, favorite: !next } : c)) }));
+      this.fireToast("Couldn't update favorite");
+    }
   }
 
   // Tap the closed cover (or anywhere on the binder) to swing it open. The cover
@@ -635,15 +636,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
     );
   }
 
-  toggleFavId(id: string) {
-    const set = new Set(this.state.favorites);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    const arr = [...set];
-    saveFavs(arr);
-    this.setState({ favorites: arr });
-  }
-
   fireToast(text: string) {
     if (this._tt) clearTimeout(this._tt);
     this.setState({ showToast: true, toastText: text });
@@ -703,7 +695,9 @@ export default class JourneyDex extends React.Component<unknown, S> {
     ].map(([k, label]) => ({ k, label, style: tabStyle(st.view === k) }));
 
     const ALL = st.cards;
-    const favSet = new Set(st.favorites);
+    // Favorites are derived straight from the cards, so the count and the
+    // filtered view can never disagree (a deleted card drops out of both).
+    const favSet = new Set(ALL.filter((c) => c.favorite).map((c) => c.id));
 
     const chipStyle = (active: boolean, type: string | null): React.CSSProperties => ({
       border: "1.5px solid " + (active ? (type ? TYPES[type].deep : "#3a342b") : "#e2d8c2"),
@@ -727,7 +721,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
       fontWeight: 600,
       fontSize: "13px",
     });
-    const favCount = st.favorites.length;
+    const favCount = favSet.size;
     const filterChips = [
       { k: "all", label: "All", style: chipStyle(st.filter === "all", null) },
       { k: "fav", label: "★ Favorites" + (favCount ? " (" + favCount + ")" : ""), style: favChipStyle(st.filter === "fav") },

@@ -21,6 +21,7 @@ export interface UiCard {
   date: string; // YYYY-MM-DD
   imageUrl?: string; // card art — now persisted in Supabase Storage
   callback?: string; // AI "growth callback" when the skill is already in memory
+  favorite: boolean; // starred by the user (per-user, persisted on the row)
 }
 
 // A row of the `cards` table.
@@ -33,6 +34,7 @@ interface CardRow {
   skill: string;
   image_url: string | null;
   callback?: string | null;
+  favorite?: boolean | null;
 }
 
 const VALID = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
@@ -53,6 +55,7 @@ function rowToUi(r: CardRow): UiCard {
     date: localDateStr(r.timestamp) || "2026-06-01",
     imageUrl: r.image_url || undefined,
     callback: r.callback || undefined,
+    favorite: !!r.favorite,
   };
 }
 
@@ -201,6 +204,13 @@ export async function updateCardApi(id: string, patch: CardPatch): Promise<UiCar
   const { data, error } = await supabase.from("cards").update(fields).eq("id", id).select().single();
   if (error) throw new Error(`updateCard: ${error.message}`);
   return rowToUi(data);
+}
+
+// Star / unstar a card. Persisted on the row so it's per-user and survives
+// sign-out/in; deleting the card removes its favorite with it.
+export async function setCardFavorite(id: string, favorite: boolean): Promise<void> {
+  const { error } = await supabase.from("cards").update({ favorite }).eq("id", id);
+  if (error) throw new Error(`setCardFavorite: ${error.message}`);
 }
 
 export async function deleteCardApi(id: string): Promise<void> {
