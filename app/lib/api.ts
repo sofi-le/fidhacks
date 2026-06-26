@@ -37,6 +37,12 @@ interface CardRow {
 
 const VALID = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 
+function localDateStr(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
 function rowToUi(r: CardRow): UiCard {
   const type = (r.type || "Career").toLowerCase();
   return {
@@ -44,7 +50,7 @@ function rowToUi(r: CardRow): UiCard {
     type: VALID.includes(type) ? type : "career",
     skill: r.skill || "",
     win: r.win || "",
-    date: (r.timestamp || "").slice(0, 10) || "2026-06-01",
+    date: localDateStr(r.timestamp) || "2026-06-01",
     imageUrl: r.image_url || undefined,
     callback: r.callback || undefined,
   };
@@ -284,6 +290,25 @@ export async function getSuggestions(input: {
   if (!r.ok) throw new Error(`getSuggestions ${r.status}`);
   const j = await r.json();
   return Array.isArray(j?.suggestions) ? j.suggestions : [];
+}
+
+// --- quest coach ------------------------------------------------------------
+
+// A short encouragement to complete the next card in the user's quest.
+export async function getCoach(quest: {
+  skill: string;
+  aim?: string;
+  type?: string;
+  deadline?: string;
+}): Promise<string> {
+  const r = await fetch(`${AI_BASE}/api/coach`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ quest }),
+  });
+  if (!r.ok) throw new Error(`getCoach ${r.status}`);
+  const j = await r.json();
+  return (j?.encouragement || "").toString();
 }
 
 // --- memory reflections -----------------------------------------------------

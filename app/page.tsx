@@ -202,7 +202,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
 
   // --- auth ----------------------------------------------------------------
 
-  handleSession(session: { user: { id: string; email?: string } } | null) {
+  handleSession(session: { user: { id: string; email?: string } } | null, evt?: string) {
     const user = session?.user ?? null;
     this.setState({ authReady: true, user });
     if (user) {
@@ -210,7 +210,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
         this._initedFor = user.id;
         // A fresh sign-in always starts with the binder closed on its cover.
         this.setState({ coverState: "closed", spread: 0 });
-        this.initSession();
+        this.initSession(evt === "SIGNED_UP");
       }
     } else {
       this._initedFor = null;
@@ -218,13 +218,15 @@ export default class JourneyDex extends React.Component<unknown, S> {
     }
   }
 
-  // First-run setup once signed in: seed the demo binder (no-op if they already
-  // have cards), load cards, and fetch the profile for the header/share panel.
-  async initSession() {
-    try {
-      await seedSampleCardsIfEmpty();
-    } catch (err) {
-      console.error("[seed]", err);
+  // First-run setup once signed in. Only seeds sample cards on SIGNED_UP so
+  // returning users don't get re-seeded on every login.
+  async initSession(isNewUser = false) {
+    if (isNewUser) {
+      try {
+        await seedSampleCardsIfEmpty();
+      } catch (err) {
+        console.error("[seed]", err);
+      }
     }
     await this.loadCards();
     try {
@@ -513,7 +515,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
   componentDidMount() {
     this.setState({ favorites: loadFavs() });
     // Auth: react to sign-in/out (incl. the Google OAuth redirect on load).
-    this._authSub = supabase.auth.onAuthStateChange((_evt, session) => this.handleSession(session)).data.subscription;
+    this._authSub = supabase.auth.onAuthStateChange((evt, session) => this.handleSession(session, evt)).data.subscription;
     supabase.auth.getSession().then(({ data }) => this.handleSession(data.session));
     this._onResize = () => this.computeFit();
     window.addEventListener("resize", this._onResize);
@@ -1002,9 +1004,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>
-                a binder of small wins
-              </div>
               <h1
                 style={{
                   fontFamily: "'Bricolage Grotesque',sans-serif",
@@ -1217,7 +1216,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
             <section>
               <div style={{ maxWidth: "560px", margin: "0 auto" }}>
                   <div style={{ textAlign: "center", marginBottom: "22px" }}>
-                    <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>every win counts</div>
+                    <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}></div>
                     <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "30px", margin: 0, color: "#352f27" }}>Capture a win</h2>
                   </div>
 

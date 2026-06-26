@@ -68,10 +68,10 @@ export default function MemoryScreen({
     <section style={{ fontFamily: '"Hanken Grotesk",system-ui,sans-serif', color: "#3a342b" }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
         <div>
-          <div style={{ fontFamily: '"Caveat",cursive', fontSize: 23, color: "#bb8b4e", lineHeight: 1, marginBottom: 2 }}>the binder remembers you</div>
+          <div style={{ fontFamily: '"Caveat",cursive', fontSize: 23, color: "#bb8b4e", lineHeight: 1, marginBottom: 2 }}></div>
           <h2 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 800, fontSize: 25, margin: 0, color: "#352f27" }}>Memory</h2>
           <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.5, color: "#857c6c", maxWidth: 440 }}>
-            Little keepsakes the binder stamped about you — patterns, streaks, and how far you&apos;ve come.
+            Keepsakes and patterns the binder stamped about how far you&apos;ve come.
           </p>
         </div>
         <button
