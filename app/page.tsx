@@ -838,9 +838,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>
-                a binder of small wins
-              </div>
               <h1
                 style={{
                   fontFamily: "'Bricolage Grotesque',sans-serif",
@@ -1037,7 +1034,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
             <section>
               <div style={{ maxWidth: "560px", margin: "0 auto" }}>
                   <div style={{ textAlign: "center", marginBottom: "22px" }}>
-                    <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>every win counts</div>
+                    <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}></div>
                     <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "30px", margin: 0, color: "#352f27" }}>Capture a win</h2>
                   </div>
 

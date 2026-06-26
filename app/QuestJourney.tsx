@@ -293,10 +293,10 @@ export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps
       {/* HEADER */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: '"Caveat",cursive', fontSize: 23, color: "#bb8b4e", lineHeight: 1, marginBottom: 2 }}>dare yourself</div>
+          <div style={{ fontFamily: '"Caveat",cursive', fontSize: 23, color: "#bb8b4e", lineHeight: 1, marginBottom: 2 }}></div>
           <h2 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 800, fontSize: 25, margin: 0, color: "#352f27" }}>Quest Journey</h2>
           <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.5, color: "#857c6c", maxWidth: 380 }}>
-            A path of small quests that build into real growth. Start small. Keep going. Become undeniable.
+            A path of small quests that build into real growth.
           </p>
         </div>
         <button onClick={() => setShowForm((v) => !v)} style={{
