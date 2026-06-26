@@ -2,7 +2,7 @@
 // The extraction brain — powered by Claude.
 //
 // transcript + memory (recent cards + skills_seen) -> strict JSON Card.
-// The model writes the human-sounding fields (type/win/overcame/skill).
+// The model writes the human-sounding fields (type/win/skill).
 //
 // We use Claude's native structured outputs (JSON mode) so the output is shaped
 // by the API, not by prompt-begging. MOCK_MODE=1 (or a missing key) skips the
@@ -71,6 +71,7 @@ export async function draftCard(transcript, { recentCards = [], skillsSeen = [] 
   if (useMock()) return mockDraft(transcript);
 
   try {
+    /* Sends transcript + memory to Claude, ask for JSON response fixed format with given prompt*/
     const memory = buildMemoryBlock(recentCards, skillsSeen);
     const res = await anthropic().messages.create(
       {
@@ -87,12 +88,14 @@ export async function draftCard(transcript, { recentCards = [], skillsSeen = [] 
       { headers: { "anthropic-beta": "structured-outputs-2025-11-13" } }
     );
 
+    /* Empty response returns a mock object */
     const textBlock = res.content.find((b) => b.type === "text");
     const parsed = safeParse(textBlock?.text);
     if (!parsed) {
       console.warn("[extract] empty/unparseable Claude response, using mock. stop=" + res.stop_reason);
       return mockDraft(transcript);
     }
+
     return sanitize(parsed);
   } catch (err) {
     console.error("[extract] Claude call failed, falling back to mock:", err.message);
