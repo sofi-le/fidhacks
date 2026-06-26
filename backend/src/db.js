@@ -24,7 +24,6 @@ db.exec(`
     timestamp TEXT NOT NULL,
     type      TEXT NOT NULL,
     win       TEXT NOT NULL,
-    overcame  TEXT NOT NULL,
     skill     TEXT NOT NULL
   );
 
@@ -37,19 +36,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cards_timestamp ON cards(timestamp);
 `);
 
-// Migration: optional card art (data URL string). SQLite has no "ADD COLUMN IF
-// NOT EXISTS", so guard the ALTER — it throws harmlessly once the column exists.
-try {
-  db.exec(`ALTER TABLE cards ADD COLUMN image TEXT`);
-} catch {
-  /* column already there */
-}
-
 // --- prepared statements ----------------------------------------------------
 
 const insertCard = db.prepare(`
-  INSERT INTO cards (id, timestamp, type, win, overcame, skill)
-  VALUES (@id, @timestamp, @type, @win, @overcame, @skill)
+  INSERT INTO cards (id, timestamp, type, win, skill)
+  VALUES (@id, @timestamp, @type, @win, @skill)
 `);
 
 const upsertSkill = db.prepare(`
@@ -100,11 +91,11 @@ export function getCard(id) {
 }
 
 /**
- * Patch an existing card's editable fields (skill/win/overcame/type/image) and
- * return the updated row, or null if the id is unknown. Only the keys present in
- * `fields` are touched; everything else is left as-is. `image: null` clears art.
+ * Patch an existing card's editable fields (skill/win/type) and return the
+ * updated row, or null if the id is unknown. Only the keys present in `fields`
+ * are touched; everything else is left as-is.
  */
-const EDITABLE = ["skill", "win", "overcame", "type", "image"];
+const EDITABLE = ["skill", "win", "type"];
 export function updateCard(id, fields) {
   const keys = EDITABLE.filter((k) => k in fields);
   if (keys.length === 0) return getCard(id);
@@ -139,7 +130,7 @@ export function getSkillsSeen() {
  * so the radar/stacked-bar never has missing axes.
  */
 export function getBalance(period = "all") {
-  const ALL_TYPES = ["Academic", "Technical", "Financial", "Social", "Hobbies"];
+  const ALL_TYPES = ["Academic", "Career", "Hobbies", "Social & Family", "Financial", "Health & Wellness"];
   const since = periodStartISO(period);
 
   const rows = since

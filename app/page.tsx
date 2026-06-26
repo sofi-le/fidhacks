@@ -1,16 +1,19 @@
 "use client";
 import React from "react";
 import Card from "./Card";
-import { getCards, extractCard, deleteCardApi, updateCardApi, UiCard } from "./lib/api";
+import QuestJourney from "./QuestJourney";
+import { BalanceScreen, ShareScreen } from "./BalanceAndShare";
+import { getCards, extractCard, deleteCardApi, updateCardApi, createCard, NewCardInput, UiCard, TYPE_LABEL } from "./lib/api";
 
 const TYPES: Record<string, { label: string; fill: string; deep: string; ink: string }> = {
-  academic: { label: "Academic", fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
-  technical: { label: "Technical", fill: "#e2d6f4", deep: "#7d5fc0", ink: "#553a91" },
-  social: { label: "Social", fill: "#fad7c2", deep: "#d6814f", ink: "#a4592b" },
-  hobbies: { label: "Hobbies", fill: "#cdecdc", deep: "#46a583", ink: "#2c7a5e" },
-  financial: { label: "Financial", fill: "#f4e7b4", deep: "#bb9a35", ink: "#856c14" },
+  academic:            { label: "Academic",          fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
+  career:              { label: "Career",            fill: "#e2d6f4", deep: "#7d5fc0", ink: "#553a91" },
+  hobbies:             { label: "Hobbies",           fill: "#cdecdc", deep: "#46a583", ink: "#2c7a5e" },
+  "social & family":   { label: "Social & Family",   fill: "#fad7c2", deep: "#d6814f", ink: "#a4592b" },
+  financial:           { label: "Financial",         fill: "#f4e7b4", deep: "#bb9a35", ink: "#856c14" },
+  "health & wellness": { label: "Health & Wellness", fill: "#d4f0e0", deep: "#3aaa6a", ink: "#1f7a48" },
 };
-const TYPE_ORDER = ["academic", "technical", "social", "hobbies", "financial"];
+const TYPE_ORDER = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 const FAV_KEY = "pos_favorites";
 function loadFavs(): string[] {
   try {
@@ -25,18 +28,12 @@ function saveFavs(f: string[]) {
   } catch {}
 }
 
-const WEEK_START = "2026-06-19";
-const MONTH_START = "2026-06-01";
-
 type S = {
   view: string;
   filter: string;
   sortDir: string;
   spread: number;
   turning: string | null;
-  period: string;
-  shareMode: string;
-  shareCardId: string;
   selectedId: string | null;
   showToast: boolean;
   toastText: string;
@@ -54,10 +51,10 @@ type S = {
   editing: boolean;
   editSkill: string;
   editWin: string;
-  editOvercame: string;
   editType: string;
-  editImage: string | undefined;
   savingEdit: boolean;
+  // Card art is client-side only: id -> data URL, mirrored to localStorage.
+  cardImages: Record<string, string>;
 };
 
 // Minimal shape of the Web Speech API we use (it isn't in the TS DOM lib reliably).
@@ -76,10 +73,11 @@ type SpeechWindow = Window & {
   webkitSpeechRecognition?: { new (): SpeechRecog };
 };
 
-export default class ProofOfSkill extends React.Component<unknown, S> {
+export default class JourneyDex extends React.Component<unknown, S> {
   bookRef = React.createRef<HTMLDivElement>();
   fitOuterRef = React.createRef<HTMLDivElement>();
   rootRef = React.createRef<HTMLDivElement>();
+  fileInputRef = React.createRef<HTMLInputElement>();
   _recog: SpeechRecog | null = null;
   _baseText = "";
   _ft: ReturnType<typeof setTimeout> | null = null;
@@ -93,9 +91,6 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     sortDir: "desc",
     spread: 0,
     turning: null,
-    period: "week",
-    shareMode: "profile",
-    shareCardId: "c11",
     selectedId: null,
     showToast: false,
     toastText: "",
@@ -105,7 +100,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     pageInput: null,
     cards: [],
     addTitle: "",
-    addType: "technical",
+    addType: "career",
     addText: "",
     recording: false,
     summarizing: false,
@@ -113,19 +108,22 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     editing: false,
     editSkill: "",
     editWin: "",
-    editOvercame: "",
-    editType: "technical",
-    editImage: undefined,
+    editType: "career",
     savingEdit: false,
+    cardImages: (() => {
+      try {
+        return JSON.parse(localStorage.getItem("card_images") || "{}");
+      } catch {
+        return {};
+      }
+    })(),
   };
 
   async loadCards() {
     try {
       const cards = await getCards();
-      this.setState((st) => ({
-        cards,
-        shareCardId: cards.some((c) => c.id === st.shareCardId) ? st.shareCardId : cards[0]?.id || "",
-      }));
+      // Merge in client-side card art (localStorage), keyed by card id.
+      this.setState((st) => ({ cards: cards.map((c) => ({ ...c, imageUrl: st.cardImages[c.id] })) }));
     } catch {
       this.fireToast("Couldn't reach the backend — is it running on :8787?");
     }
@@ -138,15 +136,26 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     this.setState((st) => ({ cards: st.cards.filter((c) => c.id !== id), selectedId: null, editing: false }));
   }
 
+  // A completed quest is minted into the binder: persist it (verbatim, no AI
+  // rewrite), refresh the binder, and jump to it.
+  async addQuestToBinder(card: NewCardInput) {
+    try {
+      await createCard(card);
+      await this.loadCards();
+      this.setState({ view: "binder" });
+      this.fireToast("Added to your binder — nice work ✓");
+    } catch {
+      this.fireToast("Couldn't add to binder — backend offline?");
+    }
+  }
+
   // Drop into edit mode for the selected card, seeding the draft fields from it.
   startEdit(card: UiCard) {
     this.setState({
       editing: true,
       editSkill: card.skill,
       editWin: card.win,
-      editOvercame: card.overcame,
       editType: card.type,
-      editImage: card.image,
     });
   }
 
@@ -154,9 +163,10 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     this.setState({ editing: false });
   }
 
-  // Read a picked image file, downscale it on a canvas (keeps the data URL small
-  // enough for SQLite), and stash it as the draft art.
-  onPickImage(file: File | undefined) {
+  // Card art is client-side only: read the picked file, downscale it on a canvas
+  // (keeps the data URL small), and store it in localStorage keyed by card id —
+  // it never touches the backend.
+  handleImagePick(id: string, file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       this.fireToast("That's not an image file");
@@ -174,12 +184,19 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          this.setState({ editImage: reader.result as string });
-          return;
+        let dataUrl = reader.result as string;
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          dataUrl = canvas.toDataURL("image/jpeg", 0.85);
         }
-        ctx.drawImage(img, 0, 0, w, h);
-        this.setState({ editImage: canvas.toDataURL("image/jpeg", 0.85) });
+        this.setState((st) => {
+          const cardImages = { ...st.cardImages, [id]: dataUrl };
+          try {
+            localStorage.setItem("card_images", JSON.stringify(cardImages));
+          } catch {}
+          return { cardImages, cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: dataUrl } : c)) };
+        });
+        this.fireToast("Image added ✓");
       };
       img.onerror = () => this.fireToast("Couldn't read that image");
       img.src = reader.result as string;
@@ -202,20 +219,11 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
       return;
     }
     this.setState({ savingEdit: true });
-    const TYPE_LABEL: Record<string, string> = {
-      academic: "Academic",
-      technical: "Technical",
-      social: "Social",
-      hobbies: "Hobbies",
-      financial: "Financial",
-    };
     try {
       const updated = await updateCardApi(id, {
         skill,
         win,
-        overcame: this.state.editOvercame.trim(),
-        type: TYPE_LABEL[this.state.editType] || "Technical",
-        image: this.state.editImage ?? null,
+        type: TYPE_LABEL[this.state.editType] || "Career",
       });
       this.setState((st) => ({
         cards: st.cards.map((c) => (c.id === id ? updated : c)),
@@ -371,53 +379,6 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     this.setState({ favorites: arr });
   }
 
-  buildRadar(cards: UiCard[]) {
-    const counts: Record<string, number> = {};
-    TYPE_ORDER.forEach((k) => {
-      counts[k] = 0;
-    });
-    cards.forEach((c) => {
-      if (c.type in counts) counts[c.type]++;
-    });
-    const max = Math.max(1, ...TYPE_ORDER.map((k) => counts[k]));
-    const cx = 100,
-      cy = 100,
-      R = 74;
-    const ptsAt = (f: number) =>
-      TYPE_ORDER.map((k, i) => {
-        const a = ((-90 + i * 72) * Math.PI) / 180;
-        return (cx + Math.cos(a) * R * f).toFixed(1) + "," + (cy + Math.sin(a) * R * f).toFixed(1);
-      }).join(" ");
-    const rings = [0.34, 0.67, 1].map((f) => ({ points: ptsAt(f) }));
-    const axes = TYPE_ORDER.map((k, i) => {
-      const a = ((-90 + i * 72) * Math.PI) / 180;
-      const lr = R + 15;
-      const lx = cx + Math.cos(a) * lr,
-        ly = cy + Math.sin(a) * lr;
-      let anchor: "middle" | "start" | "end" = "middle";
-      if (lx > cx + 4) anchor = "start";
-      else if (lx < cx - 4) anchor = "end";
-      return {
-        x: (cx + Math.cos(a) * R).toFixed(1),
-        y: (cy + Math.sin(a) * R).toFixed(1),
-        lx: lx.toFixed(1),
-        ly: (ly + (ly < cy ? -1 : 7)).toFixed(1),
-        anchor,
-        label: TYPES[k].label,
-      };
-    });
-    const verts = TYPE_ORDER.map((k, i) => {
-      const a = ((-90 + i * 72) * Math.PI) / 180;
-      const v = counts[k] / max;
-      return {
-        x: (cx + Math.cos(a) * R * v).toFixed(1),
-        y: (cy + Math.sin(a) * R * v).toFixed(1),
-        color: TYPES[k].deep,
-      };
-    });
-    return { rings, axes, verts, dataPoly: verts.map((p) => p.x + "," + p.y).join(" "), counts };
-  }
-
   fireToast(text: string) {
     if (this._tt) clearTimeout(this._tt);
     this.setState({ showToast: true, toastText: text });
@@ -443,6 +404,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
     const tabStyle = (a: boolean) => this.tabStyle(a);
     const tabs = [
       ["binder", "Binder"],
+      ["quests", "Quests"],
       ["balance", "Balance"],
       ["share", "Share"],
       ["add", "+ Add win"],
@@ -595,74 +557,8 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
             backfaceVisibility: "hidden",
           };
 
-    // balance
-    const periodCards = ALL.filter((c) => c.date >= (st.period === "week" ? WEEK_START : MONTH_START));
-    const radar = this.buildRadar(periodCards);
-    const total = periodCards.length || 1;
-    const sorted = [...TYPE_ORDER].sort((a, b) => radar.counts[b] - radar.counts[a]);
-    const topType = sorted[0],
-      lowType = sorted[sorted.length - 1];
-    const periodWord = st.period === "week" ? "this week" : "this month";
-    const legend = TYPE_ORDER.map((k) => {
-      const n = radar.counts[k];
-      const pct = Math.round((n / total) * 100);
-      return {
-        label: TYPES[k].label,
-        dotStyle: { width: "12px", height: "12px", borderRadius: "50%", background: TYPES[k].deep, flex: "0 0 auto" } as React.CSSProperties,
-        stat: n + " · " + pct + "%",
-      };
-    });
-    const mirror = "Most of your energy " + periodWord + " went to " + TYPES[topType].label + ". The shape below is the honest mirror.";
-    const recap =
-      "You logged " +
-      periodCards.length +
-      " wins " +
-      periodWord +
-      ". " +
-      TYPES[topType].label +
-      " took the lead. Lightest on " +
-      TYPES[lowType].label +
-      " — maybe give it some love this week?";
-
-    // share
-    const shareTabs = [
-      ["profile", "Profile"],
-      ["single", "Single card"],
-    ].map(([k, label]) => ({ k, label, style: tabStyle(st.shareMode === k) }));
-    const monthCards = ALL.filter((c) => c.date >= MONTH_START);
-    const profileRadar = this.buildRadar(monthCards);
-    const favProfile = ALL.filter((c) => favSet.has(c.id)).sort((a, b) => (a.date < b.date ? 1 : -1));
-    const restProfile = ALL.filter((c) => !favSet.has(c.id)).sort((a, b) => (a.date < b.date ? 1 : -1));
-    const profileCards = favProfile.concat(restProfile).slice(0, 3);
-    const shareCard = ALL.find((c) => c.id === st.shareCardId) || ALL[0];
-    const shareHeadline = "just earned this!";
-    const shareChips = ALL.map((c) => ({
-      id: c.id,
-      label: c.skill,
-      style: {
-        border: "1.5px solid " + (c.id === st.shareCardId ? TYPES[c.type].deep : "#e2d8c2"),
-        background: c.id === st.shareCardId ? TYPES[c.type].fill : "#fbf7ec",
-        color: c.id === st.shareCardId ? TYPES[c.type].ink : "#8a8275",
-        cursor: "pointer",
-        borderRadius: "999px",
-        padding: "5px 11px",
-        fontFamily: '"Hanken Grotesk",sans-serif',
-        fontWeight: 600,
-        fontSize: "12px",
-      } as React.CSSProperties,
-    }));
-    const exportBtnStyle: React.CSSProperties = {
-      background: "#3a342b",
-      color: "#fdf7e8",
-      border: "none",
-      borderRadius: "12px",
-      padding: "12px 26px",
-      fontFamily: '"Hanken Grotesk",sans-serif',
-      fontWeight: 600,
-      fontSize: "15px",
-      cursor: "pointer",
-      boxShadow: "0 8px 22px rgba(58,52,43,.18)",
-    };
+    // Balance + Share are self-contained components (./BalanceAndShare) that
+    // derive their own counts/charts from the card array.
     const sel = ALL.find((c) => c.id === st.selectedId) || null;
 
     const pageDisplayValue = st.pageInput != null ? st.pageInput : String(leftNo);
@@ -778,7 +674,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
                   color: "#352f27",
                 }}
               >
-                Proof&#8202;of&#8202;Skill
+                JourneyDex
               </h1>
             </div>
             <nav
@@ -911,132 +807,25 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
             </section>
           )}
 
-          {/* BALANCE */}
-          {st.view === "balance" && (
-            <section>
-              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "18px" }}>
-                <div>
-                  <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: "0 0 3px", color: "#352f27" }}>Where your energy went</h2>
-                  <p style={{ margin: 0, fontSize: "14px", color: "#857c6c", maxWidth: "380px" }}>{mirror}</p>
-                </div>
-                <div style={{ display: "flex", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "11px", padding: "4px" }}>
-                  {[["week", "Week"], ["month", "Month"]].map(([k, label]) => (
-                    <button key={k} style={tabStyle(st.period === k)} onClick={(e) => this.setState({ period: e.currentTarget.dataset.k as string })} data-k={k}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1.05fr .95fr", gap: "20px", alignItems: "stretch" }}>
-                <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: "18px", padding: "22px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <svg viewBox="0 0 200 200" style={{ width: "100%", maxWidth: "380px", height: "auto", overflow: "visible" }}>
-                    {radar.rings.map((ring, i) => (
-                      <polygon key={i} points={ring.points} fill="none" stroke="#e7ddc8" strokeWidth="1" />
-                    ))}
-                    {radar.axes.map((ax, i) => (
-                      <line key={i} x1="100" y1="100" x2={ax.x} y2={ax.y} stroke="#e7ddc8" strokeWidth="1" />
-                    ))}
-                    <polygon points={radar.dataPoly} fill="rgba(187,139,78,.16)" stroke="#bb8b4e" strokeWidth="2" strokeLinejoin="round" />
-                    {radar.verts.map((v, i) => (
-                      <circle key={i} cx={v.x} cy={v.y} r="4.2" fill={v.color} stroke="#fbf7ec" strokeWidth="1.5" />
-                    ))}
-                    {radar.axes.map((ax, i) => (
-                      <text key={i} x={ax.lx} y={ax.ly} textAnchor={ax.anchor} style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "9px", fontWeight: 600, fill: "#6f6555" }}>
-                        {ax.label}
-                      </text>
-                    ))}
-                  </svg>
-                  <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "11px", color: "#a59c8c", marginTop: "4px" }}>{st.period === "week" ? "Jun 19 – 25, 2026" : "June 2026"}</div>
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                  <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: "18px", padding: "16px 18px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
-                    {legend.map((row, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "11px", padding: "8px 0", borderBottom: "1px solid #f0e8d6" }}>
-                        <span style={row.dotStyle} />
-                        <span style={{ flex: 1, fontWeight: 600, fontSize: "14px", color: "#4a443a" }}>{row.label}</span>
-                        <span style={{ fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#8a8275", width: "54px", textAlign: "right" }}>{row.stat}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ background: "#fbf2d3", border: "1.5px solid #ecdda6", borderRadius: "14px", padding: "15px 18px", boxShadow: "0 8px 20px rgba(58,52,43,.08)", transform: "rotate(-.7deg)" }}>
-                    <div style={{ fontFamily: "'Caveat',cursive", fontWeight: 700, fontSize: "21px", color: "#a9842f", lineHeight: 1, marginBottom: "5px" }}>note to self</div>
-                    <p style={{ margin: 0, fontSize: "14px", lineHeight: 1.5, color: "#6a5f3f" }}>{recap}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
+          {/* QUESTS */}
+          {st.view === "quests" && (
+            <QuestJourney today="2026-06-25" onAddToBinder={(card) => this.addQuestToBinder(card)} />
           )}
+
+          {/* BALANCE */}
+          {st.view === "balance" && <BalanceScreen cards={st.cards} today="2026-06-25" />}
 
           {/* SHARE */}
           {st.view === "share" && (
-            <section>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "18px" }}>
-                <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: 0, color: "#352f27" }}>Share your proof</h2>
-                <div style={{ display: "flex", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "11px", padding: "4px" }}>
-                  {shareTabs.map((t) => (
-                    <button key={t.k as string} style={t.style} onClick={(e) => this.setState({ shareMode: e.currentTarget.dataset.k as string })} data-k={t.k}>
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {st.shareMode === "profile" && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
-                  <div style={{ width: "100%", maxWidth: "720px", background: "#fffdf7", border: "1.5px solid #e9dfca", borderRadius: "22px", padding: "26px 28px", boxShadow: "0 14px 40px rgba(58,52,43,.12)", position: "relative", overflow: "hidden" }}>
-                    <div style={{ position: "absolute", top: "16px", right: "22px", fontFamily: "'Caveat',cursive", fontSize: "18px", color: "#cbb98f" }}>proof&#8202;of&#8202;skill</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
-                      <div style={{ width: "54px", height: "54px", borderRadius: "50%", background: "#3a342b", color: "#fdf7e8", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "20px" }}>MC</div>
-                      <div>
-                        <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "22px", color: "#352f27", lineHeight: 1.1 }}>Maya Chen</div>
-                        <div style={{ fontSize: "13.5px", color: "#8a8275" }}>Builder who grinds &middot; {monthCards.length} wins this month</div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      <svg viewBox="0 0 200 200" style={{ width: "240px", maxWidth: "100%", overflow: "visible" }}>
-                        {profileRadar.rings.map((ring, i) => (
-                          <polygon key={i} points={ring.points} fill="none" stroke="#ece3ce" strokeWidth="1" />
-                        ))}
-                        <polygon points={profileRadar.dataPoly} fill="rgba(187,139,78,.16)" stroke="#bb8b4e" strokeWidth="2" strokeLinejoin="round" />
-                        {profileRadar.verts.map((v, i) => (
-                          <circle key={i} cx={v.x} cy={v.y} r="4" fill={v.color} stroke="#fffdf7" strokeWidth="1.5" />
-                        ))}
-                        {profileRadar.axes.map((ax, i) => (
-                          <text key={i} x={ax.lx} y={ax.ly} textAnchor={ax.anchor} style={{ fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "9px", fontWeight: 600, fill: "#7a7060" }}>
-                            {ax.label}
-                          </text>
-                        ))}
-                      </svg>
-                    </div>
-                    <div style={{ display: "flex", gap: "14px", marginTop: "22px", paddingTop: "18px", borderTop: "1px dashed #e3d9c2" }}>
-                      {profileCards.map((c) => (
-                        <Card key={c.id} card={c} size="sm" />
-                      ))}
-                    </div>
-                  </div>
-                  <button style={exportBtnStyle} onClick={() => this.fireToast("Profile saved to camera roll ✓")}>Save profile image</button>
-                </div>
-              )}
-
-              {st.shareMode === "single" && shareCard && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "18px" }}>
-                  <div style={{ fontFamily: "'Caveat',cursive", fontSize: "30px", color: "#bb8b4e", lineHeight: 1 }}>{shareHeadline}</div>
-                  <div>
-                    <Card card={shareCard} size="lg" />
-                  </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center", maxWidth: "560px" }}>
-                    {shareChips.map((chip) => (
-                      <button key={chip.id} style={chip.style} onClick={(e) => this.setState({ shareCardId: e.currentTarget.dataset.id as string })} data-id={chip.id}>
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button style={exportBtnStyle} onClick={() => this.fireToast("Card copied — ready to post ✓")}>Share this card</button>
-                </div>
-              )}
-            </section>
+            <ShareScreen
+              cards={st.cards.map((c) => ({ ...c, favorite: favSet.has(c.id) }))}
+              user={{
+                name: "Maya Chen",
+                initials: "MC",
+                tagline: `Builder who grinds · ${st.cards.filter((c) => c.date >= "2026-06-01").length} wins this month`,
+              }}
+              onSaveProfile={() => this.fireToast("Profile saved to camera roll ✓")}
+            />
           )}
 
           {/* ADD WIN */}
@@ -1137,7 +926,7 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
         {/* DETAIL MODAL */}
         {sel && (() => {
           const previewCard: UiCard = st.editing
-            ? { ...sel, skill: st.editSkill, win: st.editWin, overcame: st.editOvercame, type: st.editType, image: st.editImage }
+            ? { ...sel, skill: st.editSkill, win: st.editWin, type: st.editType }
             : sel;
           const closeModal = () => this.setState({ selectedId: null, editing: false });
           const fieldLabelStyle: React.CSSProperties = {
@@ -1163,7 +952,19 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
           return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={closeModal}>
             <div style={{ display: "flex", flexDirection: st.editing ? "row" : "column", flexWrap: "wrap", alignItems: st.editing ? "flex-start" : "center", justifyContent: "center", gap: st.editing ? "26px" : "18px", maxHeight: "100%", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-              <Card card={previewCard} size="lg" />
+              {/* hidden picker for card art (stored in localStorage, not the backend) */}
+              <input
+                ref={this.fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file && st.selectedId) this.handleImagePick(st.selectedId, file);
+                  e.target.value = "";
+                }}
+              />
+              <Card card={previewCard} size="lg" onArtClick={() => this.fileInputRef.current?.click()} />
 
               {!st.editing && (
                 <div style={{ display: "flex", gap: "10px" }}>
@@ -1202,14 +1003,6 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
                     onChange={(e) => this.setState({ editWin: e.target.value })}
                   />
 
-                  <div style={fieldLabelStyle}>What you overcame</div>
-                  <textarea
-                    style={{ ...fieldBoxStyle, minHeight: "54px", resize: "vertical", lineHeight: 1.45, marginBottom: "14px" }}
-                    placeholder="The struggle behind it (optional)"
-                    value={st.editOvercame}
-                    onChange={(e) => this.setState({ editOvercame: e.target.value })}
-                  />
-
                   <div style={fieldLabelStyle}>Type</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", marginBottom: "16px" }}>
                     {TYPE_ORDER.map((k) => (
@@ -1233,25 +1026,8 @@ export default class ProofOfSkill extends React.Component<unknown, S> {
                     ))}
                   </div>
 
-                  <div style={fieldLabelStyle}>Card image</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-                    <label style={{ ...ghostBtnStyle, padding: "9px 16px", fontSize: "14px", display: "inline-block" }}>
-                      {st.editImage ? "Change image" : "Upload image"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        style={{ display: "none" }}
-                        onChange={(e) => { this.onPickImage(e.target.files?.[0]); e.currentTarget.value = ""; }}
-                      />
-                    </label>
-                    {st.editImage && (
-                      <button
-                        style={{ background: "transparent", border: "none", color: "#b0564a", cursor: "pointer", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600, fontSize: "13px" }}
-                        onClick={() => this.setState({ editImage: undefined })}
-                      >
-                        Remove
-                      </button>
-                    )}
+                  <div style={{ fontSize: "12px", color: "#a59c8c", marginBottom: "20px", lineHeight: 1.4 }}>
+                    Tap the card art to set an image — it&apos;s saved on this device only.
                   </div>
 
                   <div style={{ display: "flex", gap: "10px" }}>

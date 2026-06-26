@@ -3,16 +3,14 @@
 // Add OPTIONAL fields only. (See build plan §7.)
 // ============================================================================
 
-export type CardType = "Academic" | "Technical" | "Financial" | "Social" | "Hobbies";
+export type CardType = "Academic" | "Career" | "Hobbies" | "Social & Family" | "Financial" | "Health & Wellness";
 
 export interface Card {
   id: string;             // uuid
   timestamp: string;      // ISO 8601
   type: CardType;         // domain → base color + icon
   win: string;            // one-line accomplishment (AI-written, human-sounding)
-  overcame: string;       // the struggle behind it (AI-written)
   skill: string;          // what it proves (tag) — also the semantic-memory key
-  image?: string;         // OPTIONAL card art — a data URL (user-uploaded)
 }
 
 // Semantic memory: one row per distinct skill ever seen.

@@ -6,11 +6,12 @@ const TYPES: Record<
   string,
   { label: string; mono: string; fill: string; soft: string; deep: string; ink: string }
 > = {
-  academic: { label: "Academic", mono: "Ac", fill: "#cfe4f6", soft: "#eaf3fb", deep: "#3f86bd", ink: "#235b86" },
-  technical: { label: "Technical", mono: "Te", fill: "#e2d6f4", soft: "#f1ebfb", deep: "#7d5fc0", ink: "#553a91" },
-  social: { label: "Social", mono: "So", fill: "#fad7c2", soft: "#fdeee4", deep: "#d6814f", ink: "#a4592b" },
-  hobbies: { label: "Hobbies", mono: "Ho", fill: "#cdecdc", soft: "#e6f6ee", deep: "#46a583", ink: "#2c7a5e" },
-  financial: { label: "Financial", mono: "Fi", fill: "#f4e7b4", soft: "#fbf4d7", deep: "#bb9a35", ink: "#856c14" },
+  academic:            { label: "Academic",          mono: "Ac", fill: "#cfe4f6", soft: "#eaf3fb", deep: "#3f86bd", ink: "#235b86" },
+  career:              { label: "Career",            mono: "Ca", fill: "#e2d6f4", soft: "#f1ebfb", deep: "#7d5fc0", ink: "#553a91" },
+  hobbies:             { label: "Hobbies",           mono: "Ho", fill: "#cdecdc", soft: "#e6f6ee", deep: "#46a583", ink: "#2c7a5e" },
+  "social & family":   { label: "Social & Family",   mono: "SF", fill: "#fad7c2", soft: "#fdeee4", deep: "#d6814f", ink: "#a4592b" },
+  financial:           { label: "Financial",         mono: "Fi", fill: "#f4e7b4", soft: "#fbf4d7", deep: "#bb9a35", ink: "#856c14" },
+  "health & wellness": { label: "Health & Wellness", mono: "HW", fill: "#d4f0e0", soft: "#e8f8f0", deep: "#3aaa6a", ink: "#1f7a48" },
 };
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -18,9 +19,11 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 export default function Card({
   card,
   size = "sm",
+  onArtClick,
 }: {
   card: Partial<UiCard>;
   size?: "sm" | "lg";
+  onArtClick?: () => void;
 }) {
   const c = card || {};
   const t = TYPES[c.type as string] || TYPES.academic;
@@ -72,7 +75,7 @@ export default function Card({
     fontWeight: 700,
     flex: "0 0 auto",
   };
-  const hasArt = !!c.image;
+  const hasArt = !!c.imageUrl;
   const artStyle: React.CSSProperties = {
     height: artH + "px",
     borderRadius: rad - 6 + "px",
@@ -111,15 +114,6 @@ export default function Card({
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
   };
-  const overcameStyle: React.CSSProperties = {
-    fontSize: "12.5px",
-    lineHeight: 1.4,
-    color: "#8a8275",
-    fontStyle: "italic",
-    borderLeft: "2px solid " + t.deep,
-    paddingLeft: "8px",
-    marginTop: "2px",
-  };
   const footerStyle: React.CSSProperties = {
     marginTop: "auto",
     paddingTop: (s ? 4 : 2) + "px",
@@ -131,7 +125,6 @@ export default function Card({
 
   const parts = (c.date || "2026-06-01").split("-");
   const date = MON[+parts[1] - 1] + " " + +parts[2];
-  const showOvercame = !!(s && c.overcame);
 
   return (
     <div style={frameStyle}>
@@ -139,17 +132,16 @@ export default function Card({
         <span style={monoStyle}>{t.mono}</span>
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.label}</span>
       </div>
-      <div style={artStyle}>
+      <div style={{ ...artStyle, cursor: onArtClick ? "pointer" : "default" }} onClick={onArtClick}>
         {hasArt ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={c.image} alt="card art" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <img src={c.imageUrl} alt="card art" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <span style={artLabelStyle}>card art</span>
+          <span style={artLabelStyle}>{onArtClick ? "tap to add image" : "card art"}</span>
         )}
       </div>
       <div style={nameStyle}>{c.skill || ""}</div>
       <div style={winStyle}>{c.win || ""}</div>
-      {showOvercame && <div style={overcameStyle}>{"Overcame — " + (c.overcame || "")}</div>}
       <div style={footerStyle}>{date}</div>
     </div>
   );

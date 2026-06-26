@@ -9,38 +9,43 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 export interface ApiCard {
   id: string;
   timestamp: string; // ISO
-  type: string; // "Technical" | "Academic" | ...
+  type: string; // "Career" | "Academic" | "Hobbies" | "Social & Family" | "Financial" | "Health & Wellness"
   win: string;
-  overcame: string;
   skill: string;
-  image?: string | null; // optional card art (data URL)
 }
 
 // What the UI renders (lowercase type for the color map, date as YYYY-MM-DD).
 export interface UiCard {
   id: string;
-  type: string; // "technical" | "academic" | ...
+  type: string; // "career" | "academic" | "social & family" | ...
   skill: string;
   win: string;
-  overcame: string;
   date: string; // YYYY-MM-DD
-  image?: string; // optional card art (data URL)
+  imageUrl?: string; // card art — client-side only (localStorage), not persisted
 }
 
-const VALID = ["academic", "technical", "social", "hobbies", "financial"];
+const VALID = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 
 export function fromApi(a: ApiCard): UiCard {
-  const type = (a.type || "Technical").toLowerCase();
+  const type = (a.type || "Career").toLowerCase();
   return {
     id: a.id,
-    type: VALID.includes(type) ? type : "technical",
+    type: VALID.includes(type) ? type : "career",
     skill: a.skill || "",
     win: a.win || "",
-    overcame: a.overcame || "",
     date: (a.timestamp || "").slice(0, 10) || "2026-06-01",
-    image: a.image || undefined,
   };
 }
+
+// lowercase UI type -> the capitalized label the backend contract expects.
+export const TYPE_LABEL: Record<string, string> = {
+  academic: "Academic",
+  career: "Career",
+  hobbies: "Hobbies",
+  "social & family": "Social & Family",
+  financial: "Financial",
+  "health & wellness": "Health & Wellness",
+};
 
 export async function getCards(): Promise<UiCard[]> {
   const r = await fetch(`${API_BASE}/api/cards`, { cache: "no-store" });
@@ -60,6 +65,32 @@ export async function extractCard(transcript: string): Promise<UiCard> {
   return fromApi(await r.json());
 }
 
+// Mint a card straight from explicit fields (e.g. a completed Quest), skipping
+// the AI rewrite. `type` may be lowercase ("career") — it's mapped to the
+// backend's capitalized label here. `date` is "YYYY-MM-DD"; it becomes the timestamp.
+export interface NewCardInput {
+  type: string;
+  skill: string;
+  win: string;
+  date?: string;
+}
+
+export async function createCard(input: NewCardInput): Promise<UiCard> {
+  const t = (input.type || "career").toLowerCase();
+  const r = await fetch(`${API_BASE}/api/cards`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      type: TYPE_LABEL[t] || "Career",
+      skill: input.skill,
+      win: input.win,
+      timestamp: input.date ? `${input.date}T12:00:00.000Z` : undefined,
+    }),
+  });
+  if (!r.ok) throw new Error(`POST /api/cards ${r.status}`);
+  return fromApi(await r.json());
+}
+
 export async function deleteCardApi(id: string): Promise<void> {
   const r = await fetch(`${API_BASE}/api/cards/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -71,9 +102,7 @@ export async function deleteCardApi(id: string): Promise<void> {
 export interface CardPatch {
   skill?: string;
   win?: string;
-  overcame?: string;
-  type?: string; // "Technical" | "Academic" | ... (capitalized for the contract)
-  image?: string | null;
+  type?: string; // "Career" | "Academic" | ... (capitalized for the contract)
 }
 
 export async function updateCardApi(id: string, patch: CardPatch): Promise<UiCard> {

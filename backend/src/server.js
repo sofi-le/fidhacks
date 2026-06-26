@@ -29,12 +29,11 @@ import {
 import { draftCard, useMock } from "./extract.js";
 import { generateRecap } from "./recap.js";
 
-const TYPES = ["Academic", "Technical", "Financial", "Social", "Hobbies"];
+const TYPES = ["Academic", "Career", "Hobbies", "Social & Family", "Financial", "Health & Wellness"];
 
 const app = express();
 app.use(cors());
-// Bump the body limit: edited card art arrives as a base64 data URL.
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json());
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
@@ -59,7 +58,6 @@ app.post("/api/extract", async (req, res) => {
       timestamp: new Date().toISOString(),
       type: draft.type,
       win: draft.win,
-      overcame: draft.overcame,
       skill: draft.skill,
     };
     saveCard(card);
@@ -73,9 +71,32 @@ app.post("/api/extract", async (req, res) => {
 
 app.get("/api/cards", (_req, res) => res.json(getAllCards()));
 
+// Create a card from explicit, already-written fields (the Quest Journey mints a
+// completed quest straight into the binder — its text is the user's own, so it
+// skips the AI rewrite that /api/extract does). Persists episodic + semantic.
+app.post("/api/cards", (req, res) => {
+  const b = req.body || {};
+  const oneLine = (s, fb, max = 240) =>
+    (typeof s === "string" && s.trim() ? s.trim() : fb).replace(/\s+/g, " ").slice(0, max);
+
+  const ts = typeof b.timestamp === "string" && !isNaN(Date.parse(b.timestamp))
+    ? new Date(b.timestamp).toISOString()
+    : new Date().toISOString();
+
+  const card = {
+    id: randomUUID(),
+    timestamp: ts,
+    type: TYPES.includes(b.type) ? b.type : "Career",
+    win: oneLine(b.win, "Logged a win."),
+    skill: oneLine(b.skill, "General", 80),
+  };
+  saveCard(card);
+  res.status(201).json(card);
+});
+
 // Edit a card in place (the detail modal's "Edit" panel): title (skill),
-// description (win), the struggle line, type, and/or card art. Only the fields
-// present in the body are changed.
+// description (win), and/or type. Only the fields present in the body are changed.
+// (Card art lives client-side in localStorage, not here.)
 app.patch("/api/cards/:id", (req, res) => {
   const b = req.body || {};
   const patch = {};
@@ -83,11 +104,7 @@ app.patch("/api/cards/:id", (req, res) => {
 
   if (typeof b.skill === "string") patch.skill = oneLine(b.skill);
   if (typeof b.win === "string") patch.win = oneLine(b.win);
-  if (typeof b.overcame === "string") patch.overcame = oneLine(b.overcame);
   if (typeof b.type === "string" && TYPES.includes(b.type)) patch.type = b.type;
-  // image: a data URL string sets art; null clears it.
-  if (typeof b.image === "string") patch.image = b.image;
-  else if (b.image === null) patch.image = null;
 
   const updated = updateCard(req.params.id, patch);
   if (!updated) return res.status(404).json({ error: "card not found" });

@@ -1,16 +1,100 @@
 [
-  { "id": "c1",  "timestamp": "2026-06-24T12:00:00.000Z", "type": "Technical", "skill": "Solo prod deploy",        "win": "Pushed to production alone and nothing broke.",          "overcame": "A failing CI pipeline and zero teammates online at 2am." },
-  { "id": "c2",  "timestamp": "2026-06-22T12:00:00.000Z", "type": "Social",    "skill": "FidHacks pitch",          "win": "Pitched to a room of 50 and landed the laughs.",         "overcame": "Stage fright that usually freezes me up." },
-  { "id": "c3",  "timestamp": "2026-06-23T12:00:00.000Z", "type": "Academic",  "skill": "Read a dense ML paper",   "win": "Finished the attention paper end to end, actually got it.", "overcame": "Three re-reads and a lot of pausing to Google." },
-  { "id": "c4",  "timestamp": "2026-06-20T12:00:00.000Z", "type": "Technical", "skill": "Killed a race condition", "win": "Tracked down the heisenbug and made it reproducible.",    "overcame": "Two days of \"works on my machine\"." },
-  { "id": "c5",  "timestamp": "2026-06-21T12:00:00.000Z", "type": "Hobbies",   "skill": "First 5k",                "win": "Ran the whole thing without stopping.",                  "overcame": "A side stitch at km 3 and the urge to quit." },
-  { "id": "c6",  "timestamp": "2026-06-19T12:00:00.000Z", "type": "Financial", "skill": "Budget that stuck",       "win": "Two months on the same budget and it held.",             "overcame": "My habit of forgetting to log small spends." },
-  { "id": "c7",  "timestamp": "2026-06-12T12:00:00.000Z", "type": "Technical", "skill": "First WebSocket server",  "win": "Got real-time messages flowing both ways.",              "overcame": "Three hours lost to a CORS wall." },
-  { "id": "c8",  "timestamp": "2026-06-09T12:00:00.000Z", "type": "Academic",  "skill": "Aced linear algebra",     "win": "Walked out of the final actually confident.",            "overcame": "Eigenvalues that never clicked until week 9." },
-  { "id": "c9",  "timestamp": "2026-06-14T12:00:00.000Z", "type": "Social",    "skill": "Cold-emailed a mentor",   "win": "Sent the scary email and she said yes.",                 "overcame": "The voice telling me not to bother her." },
-  { "id": "c10", "timestamp": "2026-06-07T12:00:00.000Z", "type": "Hobbies",   "skill": "Watercolor #4",           "win": "Finished a small landscape I actually like.",            "overcame": "The urge to overwork every wash." },
-  { "id": "c11", "timestamp": "2026-06-16T12:00:00.000Z", "type": "Financial", "skill": "Negotiated a raise",      "win": "Asked for the number and got it.",                       "overcame": "A decade of avoiding the money talk." },
-  { "id": "c12", "timestamp": "2026-06-05T12:00:00.000Z", "type": "Academic",  "skill": "TA'd my first section",   "win": "Taught 20 students and they got it.",                    "overcame": "Imposter syndrome the whole walk over." },
-  { "id": "c13", "timestamp": "2026-06-03T12:00:00.000Z", "type": "Technical", "skill": "Learned React hooks",     "win": "Refactored class components to hooks, cleanly.",         "overcame": "A mental model that fought me for a week." },
-  { "id": "c14", "timestamp": "2026-06-11T12:00:00.000Z", "type": "Hobbies",   "skill": "Three guitar songs",      "win": "Can play three songs start to finish now.",              "overcame": "Finger cramps and a stubborn F chord." }
+  {
+    "id": "c1",
+    "timestamp": "2026-06-24T12:00:00.000Z",
+    "type": "Career",
+    "skill": "Solo prod deploy",
+    "win": "Pushed to production alone and nothing broke."
+  },
+  {
+    "id": "c2",
+    "timestamp": "2026-06-22T12:00:00.000Z",
+    "type": "Social & Family",
+    "skill": "FidHacks pitch",
+    "win": "Pitched to a room of 50 and landed the laughs."
+  },
+  {
+    "id": "c3",
+    "timestamp": "2026-06-23T12:00:00.000Z",
+    "type": "Academic",
+    "skill": "Read a dense ML paper",
+    "win": "Finished the attention paper end to end, actually got it."
+  },
+  {
+    "id": "c4",
+    "timestamp": "2026-06-20T12:00:00.000Z",
+    "type": "Career",
+    "skill": "Killed a race condition",
+    "win": "Tracked down the heisenbug and made it reproducible."
+  },
+  {
+    "id": "c5",
+    "timestamp": "2026-06-21T12:00:00.000Z",
+    "type": "Hobbies",
+    "skill": "First 5k",
+    "win": "Ran the whole thing without stopping."
+  },
+  {
+    "id": "c6",
+    "timestamp": "2026-06-19T12:00:00.000Z",
+    "type": "Financial",
+    "skill": "Budget that stuck",
+    "win": "Two months on the same budget and it held."
+  },
+  {
+    "id": "c7",
+    "timestamp": "2026-06-12T12:00:00.000Z",
+    "type": "Career",
+    "skill": "First WebSocket server",
+    "win": "Got real-time messages flowing both ways."
+  },
+  {
+    "id": "c8",
+    "timestamp": "2026-06-09T12:00:00.000Z",
+    "type": "Academic",
+    "skill": "Aced linear algebra",
+    "win": "Walked out of the final actually confident."
+  },
+  {
+    "id": "c9",
+    "timestamp": "2026-06-14T12:00:00.000Z",
+    "type": "Social & Family",
+    "skill": "Cold-emailed a mentor",
+    "win": "Sent the scary email and she said yes."
+  },
+  {
+    "id": "c10",
+    "timestamp": "2026-06-07T12:00:00.000Z",
+    "type": "Hobbies",
+    "skill": "Watercolor #4",
+    "win": "Finished a small landscape I actually like."
+  },
+  {
+    "id": "c11",
+    "timestamp": "2026-06-16T12:00:00.000Z",
+    "type": "Financial",
+    "skill": "Negotiated a raise",
+    "win": "Asked for the number and got it."
+  },
+  {
+    "id": "c12",
+    "timestamp": "2026-06-05T12:00:00.000Z",
+    "type": "Academic",
+    "skill": "TA'd my first section",
+    "win": "Taught 20 students and they got it."
+  },
+  {
+    "id": "c13",
+    "timestamp": "2026-06-03T12:00:00.000Z",
+    "type": "Career",
+    "skill": "Learned React hooks",
+    "win": "Refactored class components to hooks, cleanly."
+  },
+  {
+    "id": "c14",
+    "timestamp": "2026-06-11T12:00:00.000Z",
+    "type": "Hobbies",
+    "skill": "Three guitar songs",
+    "win": "Can play three songs start to finish now."
+  }
 ]
