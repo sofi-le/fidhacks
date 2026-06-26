@@ -174,13 +174,13 @@ export default class JourneyDex extends React.Component<unknown, S> {
 
   // --- auth ----------------------------------------------------------------
 
-  handleSession(session: { user: { id: string; email?: string } } | null) {
+  handleSession(session: { user: { id: string; email?: string } } | null, evt?: string) {
     const user = session?.user ?? null;
     this.setState({ authReady: true, user });
     if (user) {
       if (this._initedFor !== user.id) {
         this._initedFor = user.id;
-        this.initSession();
+        this.initSession(evt === "SIGNED_UP");
       }
     } else {
       this._initedFor = null;
@@ -188,13 +188,15 @@ export default class JourneyDex extends React.Component<unknown, S> {
     }
   }
 
-  // First-run setup once signed in: seed the demo binder (no-op if they already
-  // have cards), load cards, and fetch the profile for the header/share panel.
-  async initSession() {
-    try {
-      await seedSampleCardsIfEmpty();
-    } catch (err) {
-      console.error("[seed]", err);
+  // First-run setup once signed in. Only seeds sample cards on SIGNED_UP so
+  // returning users don't get re-seeded on every login.
+  async initSession(isNewUser = false) {
+    if (isNewUser) {
+      try {
+        await seedSampleCardsIfEmpty();
+      } catch (err) {
+        console.error("[seed]", err);
+      }
     }
     await this.loadCards();
     try {
@@ -483,7 +485,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
   componentDidMount() {
     this.setState({ favorites: loadFavs() });
     // Auth: react to sign-in/out (incl. the Google OAuth redirect on load).
-    this._authSub = supabase.auth.onAuthStateChange((_evt, session) => this.handleSession(session)).data.subscription;
+    this._authSub = supabase.auth.onAuthStateChange((evt, session) => this.handleSession(session, evt)).data.subscription;
     supabase.auth.getSession().then(({ data }) => this.handleSession(data.session));
     this._onResize = () => this.computeFit();
     window.addEventListener("resize", this._onResize);
