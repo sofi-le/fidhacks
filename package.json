@@ -6,13 +6,14 @@
     "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "next dev -p 3939",
     "dev:api": "npm --prefix backend run dev",
-    "setup": "npm install && npm --prefix backend install && npm --prefix backend run seed",
+    "setup": "npm install && npm --prefix backend install",
     "build": "next build",
     "start": "next start -p 3939",
     "lint": "eslint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.106.0",
+    "@supabase/supabase-js": "^2.108.2",
     "html2canvas": "^1.4.1",
     "next": "16.2.9",
     "react": "19.2.4",

@@ -4,7 +4,26 @@ import Card from "./Card";
 import QuestJourney from "./QuestJourney";
 import PackReveal from "./PackReveal";
 import { BalanceScreen, ShareScreen } from "./BalanceAndShare";
-import { getCards, extractCard, deleteCardApi, updateCardApi, createCard, NewCardInput, UiCard, TYPE_LABEL } from "./lib/api";
+import MemoryScreen from "./Memory";
+import {
+  getCards,
+  extractCard,
+  deleteCardApi,
+  updateCardApi,
+  createCard,
+  uploadCardImage,
+  seedSampleCardsIfEmpty,
+  suggestTitle,
+  getProfile,
+  getReflections,
+  NewCardInput,
+  UiCard,
+  Profile,
+  Reflection,
+  TYPE_LABEL,
+} from "./lib/api";
+import { supabase, hasSupabaseConfig } from "./lib/supabase";
+import LoginScreen from "./LoginScreen";
 
 const TYPES: Record<string, { label: string; fill: string; deep: string; ink: string }> = {
   academic:            { label: "Academic",          fill: "#cfe4f6", deep: "#3f86bd", ink: "#235b86" },
@@ -15,13 +34,6 @@ const TYPES: Record<string, { label: string; fill: string; deep: string; ink: st
   "health & wellness": { label: "Health & Wellness", fill: "#d4f0e0", deep: "#3aaa6a", ink: "#1f7a48" },
 };
 const TYPE_ORDER = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
-
-// The seed cards (ids c1..c14) ship with hardcoded art in public/card_images/.
-// A user-uploaded image (localStorage) takes precedence over these defaults.
-const HARDCODED_IMAGE_IDS = new Set(["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14"]);
-function hardcodedImage(id: string): string | undefined {
-  return HARDCODED_IMAGE_IDS.has(id) ? `/card_images/${id}.jpg` : undefined;
-}
 
 const FAV_KEY = "pos_favorites";
 function loadFavs(): string[] {
@@ -57,14 +69,26 @@ type S = {
   addImage: string | undefined; // optional art for the card being added (data URL)
   recording: boolean;
   summarizing: boolean;
+  suggestingTitle: boolean;
   revealCard: UiCard | null; // the freshly-minted card shown in the pack-open animation
   editing: boolean;
   editSkill: string;
   editWin: string;
   editType: string;
   savingEdit: boolean;
-  // Card art is client-side only: id -> data URL, mirrored to localStorage.
-  cardImages: Record<string, string>;
+  // Auth + profile (Supabase). authReady gates the first render; user is null
+  // until signed in; profile holds the display name + avatar for the header/share.
+  authReady: boolean;
+  user: { id: string; email?: string } | null;
+  profile: Profile | null;
+  authError: string | null;
+  authNotice: string | null;
+  // Memory tab — state lifted here so it survives tab switches (only the
+  // "Reflect again" button refetches; revisiting the tab does not).
+  memory: Reflection[];
+  memoryLoading: boolean;
+  memoryError: boolean;
+  memoryLoaded: boolean;
 };
 
 // Minimal shape of the Web Speech API we use (it isn't in the TS DOM lib reliably).
@@ -115,31 +139,108 @@ export default class JourneyDex extends React.Component<unknown, S> {
     addImage: undefined,
     recording: false,
     summarizing: false,
+    suggestingTitle: false,
     revealCard: null,
     editing: false,
     editSkill: "",
     editWin: "",
     editType: "career",
     savingEdit: false,
-    cardImages: (() => {
-      try {
-        return JSON.parse(localStorage.getItem("card_images") || "{}");
-      } catch {
-        return {};
-      }
-    })(),
+    authReady: false,
+    user: null,
+    profile: null,
+    authError: null,
+    authNotice: null,
+    memory: [],
+    memoryLoading: false,
+    memoryError: false,
+    memoryLoaded: false,
   };
+
+  _authSub: { unsubscribe: () => void } | null = null;
+  _initedFor: string | null = null;
 
   async loadCards() {
     try {
+      // Cards (with their image_url) come straight from Supabase, scoped to the
+      // signed-in user by Row-Level Security.
       const cards = await getCards();
-      // Card art: a user-uploaded image (localStorage) wins, else the seed
-      // card's hardcoded default in public/card_images/.
-      this.setState((st) => ({ cards: cards.map((c) => ({ ...c, imageUrl: st.cardImages[c.id] || hardcodedImage(c.id) })) }));
-    } catch {
-      this.fireToast("Couldn't reach the backend — is it running on :8787?");
+      this.setState({ cards });
+    } catch (err) {
+      console.error(err);
+      this.fireToast("Couldn't load your cards — check your Supabase config.");
     }
   }
+
+  // --- auth ----------------------------------------------------------------
+
+  handleSession(session: { user: { id: string; email?: string } } | null) {
+    const user = session?.user ?? null;
+    this.setState({ authReady: true, user });
+    if (user) {
+      if (this._initedFor !== user.id) {
+        this._initedFor = user.id;
+        this.initSession();
+      }
+    } else {
+      this._initedFor = null;
+      this.setState({ cards: [], profile: null });
+    }
+  }
+
+  // First-run setup once signed in: seed the demo binder (no-op if they already
+  // have cards), load cards, and fetch the profile for the header/share panel.
+  async initSession() {
+    try {
+      await seedSampleCardsIfEmpty();
+    } catch (err) {
+      console.error("[seed]", err);
+    }
+    await this.loadCards();
+    try {
+      this.setState({ profile: await getProfile() });
+    } catch (err) {
+      console.error("[profile]", err);
+    }
+  }
+
+  signInWithPassword = async (email: string, password: string) => {
+    this.setState({ authError: null, authNotice: null });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) this.setState({ authError: error.message });
+  };
+
+  signUpWithPassword = async (email: string, password: string) => {
+    this.setState({ authError: null, authNotice: null });
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      this.setState({ authError: error.message });
+      return;
+    }
+    // With email confirmation OFF, a session comes back and onAuthStateChange
+    // signs them straight in. With it ON, there's no session yet.
+    if (!data.session) {
+      this.setState({ authNotice: "Account created — check your email to confirm, then sign in." });
+    }
+  };
+
+  signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Generate the Memory reflections. Called once on first open of the tab and
+  // again whenever the user taps "Reflect again" — never on plain tab revisits.
+  loadMemory = async () => {
+    if (this.state.memoryLoading) return;
+    this.setState({ memoryLoading: true, memoryError: false });
+    try {
+      const memory = await getReflections();
+      this.setState({ memory, memoryLoaded: true, memoryLoading: false });
+    } catch (err) {
+      console.error("[memory]", err);
+      this.setState({ memoryError: true, memoryLoading: false });
+    }
+  };
 
   async deleteCard(id: string) {
     try {
@@ -203,15 +304,17 @@ export default class JourneyDex extends React.Component<unknown, S> {
     });
   }
 
-  // Persist a card's art to localStorage (keyed by id) and reflect it on the card.
-  storeCardImage(id: string, dataUrl: string) {
-    this.setState((st) => {
-      const cardImages = { ...st.cardImages, [id]: dataUrl };
-      try {
-        localStorage.setItem("card_images", JSON.stringify(cardImages));
-      } catch {}
-      return { cardImages, cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: dataUrl } : c)) };
-    });
+  // Upload a card's art to Supabase Storage and reflect it on the card. Shows the
+  // local preview immediately, then swaps in the stored (public) URL once saved.
+  async storeCardImage(id: string, dataUrl: string) {
+    this.setState((st) => ({ cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: dataUrl } : c)) }));
+    try {
+      const url = await uploadCardImage(id, dataUrl);
+      this.setState((st) => ({ cards: st.cards.map((c) => (c.id === id ? { ...c, imageUrl: url } : c)) }));
+    } catch (err) {
+      console.error("[image]", err);
+      this.fireToast("Couldn't save the image");
+    }
   }
 
   // Tap a card's art in the detail modal -> set/replace its image.
@@ -310,6 +413,25 @@ export default class JourneyDex extends React.Component<unknown, S> {
     }
   }
 
+  // "✨ Title" button: ask the AI for a title based on the description (no card created).
+  suggestTitleNow = async () => {
+    const text = (this.state.addText || "").trim();
+    if (!text) {
+      this.fireToast("Add a description first");
+      return;
+    }
+    if (this.state.suggestingTitle) return;
+    this.setState({ suggestingTitle: true });
+    try {
+      const skill = await suggestTitle(text);
+      this.setState({ addTitle: skill || this.state.addTitle, suggestingTitle: false });
+      this.fireToast("Title suggested ✓");
+    } catch {
+      this.setState({ suggestingTitle: false });
+      this.fireToast("Couldn't suggest a title");
+    }
+  };
+
   async submitAdd() {
     const title = (this.state.addTitle || "").trim();
     const text = (this.state.addText || "").trim();
@@ -329,29 +451,40 @@ export default class JourneyDex extends React.Component<unknown, S> {
     const img = this.state.addImage;
     this.setState({ summarizing: true });
     try {
-      // The backend AI summarizes the description into the win; the user's typed
+      // The AI server summarizes the description into the win; the user's typed
       // title + selected type are sent as overrides so they're used verbatim.
       const card = await extractCard(text, { skill: title, type: this.state.addType });
-      // Attach the chosen art (client-side, keyed by the new card's id).
-      if (img) this.storeCardImage(card.id, img);
+      // Upload the chosen art to Supabase Storage (keyed by the new card's id).
+      let finalCard = card;
+      if (img) {
+        try {
+          const url = await uploadCardImage(card.id, img);
+          finalCard = { ...card, imageUrl: url };
+        } catch (err) {
+          console.error("[image]", err);
+        }
+      }
       await this.loadCards();
       this.setState({
-        revealCard: img ? { ...card, imageUrl: img } : card,
+        revealCard: finalCard,
         addTitle: "",
         addText: "",
         addImage: undefined,
         recording: false,
         summarizing: false,
       });
-    } catch {
+    } catch (err) {
+      console.error(err);
       this.setState({ summarizing: false });
-      this.fireToast("Couldn't add the card — backend offline?");
+      this.fireToast("Couldn't add the card — is the AI server running?");
     }
   }
 
   componentDidMount() {
     this.setState({ favorites: loadFavs() });
-    this.loadCards();
+    // Auth: react to sign-in/out (incl. the Google OAuth redirect on load).
+    this._authSub = supabase.auth.onAuthStateChange((_evt, session) => this.handleSession(session)).data.subscription;
+    supabase.auth.getSession().then(({ data }) => this.handleSession(data.session));
     this._onResize = () => this.computeFit();
     window.addEventListener("resize", this._onResize);
     this.scheduleFit();
@@ -361,6 +494,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
     window.removeEventListener("resize", this._onResize);
     (this._fitTimers || []).forEach(clearTimeout);
     if (this._ft) clearTimeout(this._ft);
+    if (this._authSub) this._authSub.unsubscribe();
     try {
       if (this._recog) this._recog.stop();
     } catch {}
@@ -433,11 +567,38 @@ export default class JourneyDex extends React.Component<unknown, S> {
 
   render() {
     const st = this.state;
+
+    // Auth gate: hold the first paint until we know the session, then show
+    // either the Google login screen or the app.
+    if (!st.authReady) {
+      return (
+        <div style={{ minHeight: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#f3eddf", color: "#8a7a5c", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 600 }}>
+          Loading…
+        </div>
+      );
+    }
+    if (!st.user) {
+      return (
+        <LoginScreen
+          configured={hasSupabaseConfig}
+          error={st.authError}
+          notice={st.authNotice}
+          onSignIn={this.signInWithPassword}
+          onSignUp={this.signUpWithPassword}
+        />
+      );
+    }
+
+    const displayName = st.profile?.displayName || st.user.email || "You";
+    const initials =
+      displayName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "Y";
+
     const tabStyle = (a: boolean) => this.tabStyle(a);
     const tabs = [
       ["binder", "Binder"],
       ["quests", "Quests"],
-      ["balance", "Balance"],
+      ["balance", "Stats"],
+      ["memory", "Memory"],
       ["share", "Share"],
       ["add", "+ Add win"],
     ].map(([k, label]) => ({ k, label, style: tabStyle(st.view === k) }));
@@ -693,23 +854,38 @@ export default class JourneyDex extends React.Component<unknown, S> {
                 JourneyDex
               </h1>
             </div>
-            <nav
-              style={{
-                display: "flex",
-                gap: "6px",
-                background: "#fbf7ec",
-                border: "1.5px solid #e6dcc6",
-                borderRadius: "14px",
-                padding: "5px",
-                boxShadow: "0 4px 14px rgba(58,52,43,.06)",
-              }}
-            >
-              {tabs.map((tab) => (
-                <button key={tab.k as string} style={tab.style} onClick={setView} data-k={tab.k}>
-                  {tab.label}
+            <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+              <nav
+                style={{
+                  display: "flex",
+                  gap: "6px",
+                  background: "#fbf7ec",
+                  border: "1.5px solid #e6dcc6",
+                  borderRadius: "14px",
+                  padding: "5px",
+                  boxShadow: "0 4px 14px rgba(58,52,43,.06)",
+                }}
+              >
+                {tabs.map((tab) => (
+                  <button key={tab.k as string} style={tab.style} onClick={setView} data-k={tab.k}>
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+              {/* user chip + sign out */}
+              <div style={{ display: "flex", alignItems: "center", gap: "9px", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "14px", padding: "5px 9px 5px 5px", boxShadow: "0 4px 14px rgba(58,52,43,.06)" }}>
+                {st.profile?.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={st.profile.avatarUrl} alt="" referrerPolicy="no-referrer" style={{ width: "30px", height: "30px", borderRadius: "50%", objectFit: "cover" }} />
+                ) : (
+                  <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: "#3a342b", color: "#fdf7e8", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "12px", fontFamily: "'Bricolage Grotesque',sans-serif" }}>{initials}</div>
+                )}
+                <span style={{ fontSize: "13px", fontWeight: 600, color: "#6b6356", maxWidth: "110px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
+                <button onClick={this.signOut} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#a59c8c", fontSize: "12px", fontWeight: 600, fontFamily: "'Hanken Grotesk',sans-serif" }}>
+                  Sign out
                 </button>
-              ))}
-            </nav>
+              </div>
+            </div>
           </header>
 
           {/* BINDER */}
@@ -831,14 +1007,26 @@ export default class JourneyDex extends React.Component<unknown, S> {
           {/* BALANCE */}
           {st.view === "balance" && <BalanceScreen cards={st.cards} today="2026-06-25" />}
 
+          {/* MEMORY */}
+          {st.view === "memory" && (
+            <MemoryScreen
+              cards={st.cards}
+              items={st.memory}
+              loading={st.memoryLoading}
+              error={st.memoryError}
+              loaded={st.memoryLoaded}
+              onRefresh={this.loadMemory}
+            />
+          )}
+
           {/* SHARE */}
           {st.view === "share" && (
             <ShareScreen
               cards={st.cards.map((c) => ({ ...c, favorite: favSet.has(c.id) }))}
               user={{
-                name: "Maya Chen",
-                initials: "MC",
-                tagline: `Builder who grinds · ${st.cards.filter((c) => c.date >= "2026-06-01").length} wins this month`,
+                name: displayName,
+                initials,
+                tagline: `${st.cards.filter((c) => c.date >= "2026-06-01").length} wins this month`,
               }}
               onSaveProfile={() => this.fireToast("Profile image downloaded ✓")}
             />
@@ -879,12 +1067,21 @@ export default class JourneyDex extends React.Component<unknown, S> {
                     The AI shortens this into your card&apos;s one-line win.
                   </div>
 
-                  <input
-                    style={{ width: "100%", boxSizing: "border-box", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "12px", padding: "12px 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "15px", color: "#3a342b", outline: "none", marginBottom: "16px" }}
-                    placeholder="Name this win (e.g. First WebSocket server)"
-                    value={st.addTitle}
-                    onChange={(e) => this.setState({ addTitle: e.target.value })}
-                  />
+                  <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+                    <input
+                      style={{ flex: 1, minWidth: 0, boxSizing: "border-box", background: "#fbf7ec", border: "1.5px solid #e6dcc6", borderRadius: "12px", padding: "12px 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "15px", color: "#3a342b", outline: "none" }}
+                      placeholder="Name this win (e.g. First WebSocket server)"
+                      value={st.addTitle}
+                      onChange={(e) => this.setState({ addTitle: e.target.value })}
+                    />
+                    <button
+                      onClick={() => this.suggestTitleNow()}
+                      title="Generate a title from your description"
+                      style={{ flex: "0 0 auto", whiteSpace: "nowrap", background: "#fbf7ec", color: "#9a7b1f", border: "1.5px solid #ecdca0", borderRadius: "12px", padding: "0 14px", fontFamily: "'Hanken Grotesk',sans-serif", fontWeight: 700, fontSize: "13.5px", cursor: st.suggestingTitle ? "default" : "pointer", opacity: st.suggestingTitle ? 0.6 : 1 }}
+                    >
+                      {st.suggestingTitle ? "…" : "✨ Title"}
+                    </button>
+                  </div>
 
                   <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "11px", letterSpacing: "1px", textTransform: "uppercase", color: "#a59c8c", marginBottom: "8px" }}>Type</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "24px" }}>
@@ -988,7 +1185,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
           return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(46,41,33,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", zIndex: 50 }} onClick={closeModal}>
             <div style={{ display: "flex", flexDirection: st.editing ? "row" : "column", flexWrap: "wrap", alignItems: st.editing ? "flex-start" : "center", justifyContent: "center", gap: st.editing ? "26px" : "18px", maxHeight: "100%", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-              {/* hidden picker for card art (stored in localStorage, not the backend) */}
+              {/* hidden picker for card art (uploaded to Supabase Storage) */}
               <input
                 ref={this.fileInputRef}
                 type="file"
@@ -1063,7 +1260,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
                   </div>
 
                   <div style={{ fontSize: "12px", color: "#a59c8c", marginBottom: "20px", lineHeight: 1.4 }}>
-                    Tap the card art to set an image — it&apos;s saved on this device only.
+                    Tap the card art to set an image — it&apos;s saved to your account.
                   </div>
 
                   <div style={{ display: "flex", gap: "10px" }}>

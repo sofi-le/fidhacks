@@ -37,6 +37,13 @@ Field guidance:
 - win:      ONE line, first person, human, specific. What they accomplished.
 - skill:    1-3 words. The reusable skill this proves. REUSE the exact wording of a prior
             skill from memory if it's the same skill, so the skill tag stays stable.
+- callback: OPTIONAL one short line spoken directly TO the user ("you ..."), and ONLY when
+            this skill (or a clearly equivalent one) ALREADY appears in their memory. Call
+            out their history concretely — the count ("3rd time you've logged this"), how
+            long since the first time the memory shows ("a month ago this terrified you"),
+            or how far they've come. The memory lists each skill as "(seen Nx, since DATE)",
+            so this new card is the (N+1)th time. Warm, specific, a little proud — like a
+            friend who's been paying attention. If the skill is NEW to memory, return "".
 
 Write like a supportive friend. No emojis. No exclamation spam.`;
 
@@ -58,8 +65,9 @@ const RESPONSE_SCHEMA = {
     type:     { type: "string", enum: TYPES },
     win:      { type: "string" },
     skill:    { type: "string" },
+    callback: { type: "string" },
   },
-  required: ["type", "win", "skill"],
+  required: ["type", "win", "skill", "callback"],
 };
 
 /**
@@ -67,12 +75,17 @@ const RESPONSE_SCHEMA = {
  * Returns a partial card: { type, win, skill }.
  * Never throws — falls back to a mock so the endpoint always returns something.
  */
-export async function draftCard(transcript, { recentCards = [], skillsSeen = [] } = {}) {
-  if (useMock()) return mockDraft(transcript);
+export async function draftCard(transcript, { recentCards = [], skillsSeen = [], userSkill = "" } = {}) {
+  if (useMock()) return mockDraft(transcript, skillsSeen, userSkill);
 
   try {
     /* Sends transcript + memory to Claude, ask for JSON response fixed format with given prompt*/
     const memory = buildMemoryBlock(recentCards, skillsSeen);
+    // The user usually types their own title (skill); the callback must judge THAT
+    // skill against memory, not the model's guess.
+    const skillNote = userSkill && userSkill.trim()
+      ? `\n\nThe user titled this win's skill as: "${userSkill.trim()}". Use this EXACT text as "skill". For "callback", judge whether THIS skill (or a clearly equivalent one) already appears in the memory above.`
+      : "";
     const res = await anthropic().messages.create(
       {
         model: MODEL,
@@ -80,7 +93,7 @@ export async function draftCard(transcript, { recentCards = [], skillsSeen = [] 
         temperature: 0.7,
         system: SYSTEM,
         messages: [
-          { role: "user", content: `MEMORY:\n${memory}\n\nTRANSCRIPT:\n"""${transcript}"""\n\n${USER_PROMPT_SUFFIX}` },
+          { role: "user", content: `MEMORY:\n${memory}\n\nTRANSCRIPT:\n"""${transcript}"""\n\n${USER_PROMPT_SUFFIX}${skillNote}` },
         ],
         // native structured outputs (beta) — guarantees the response matches RESPONSE_SCHEMA
         output_config: { format: { type: "json_schema", schema: RESPONSE_SCHEMA } },
@@ -93,13 +106,13 @@ export async function draftCard(transcript, { recentCards = [], skillsSeen = [] 
     const parsed = safeParse(textBlock?.text);
     if (!parsed) {
       console.warn("[extract] empty/unparseable Claude response, using mock. stop=" + res.stop_reason);
-      return mockDraft(transcript);
+      return mockDraft(transcript, skillsSeen, userSkill);
     }
 
     return sanitize(parsed);
   } catch (err) {
     console.error("[extract] Claude call failed, falling back to mock:", err.message);
-    return mockDraft(transcript);
+    return mockDraft(transcript, skillsSeen, userSkill);
   }
 }
 
@@ -142,12 +155,14 @@ function sanitize(d) {
     type: TYPES.includes(d?.type) ? d.type : "Career",
     win: oneLine(d?.win, "Logged a win."),
     skill: oneLine(d?.skill, "General"),
+    // optional growth callback ("" when this skill is new to memory)
+    callback: typeof d?.callback === "string" ? d.callback.trim().replace(/\s+/g, " ").slice(0, 160) : "",
   };
 }
 
 // --- mock (no network) ------------------------------------------------------
 
-function mockDraft(transcript) {
+function mockDraft(transcript, skillsSeen = [], userSkill = "") {
   const t = (transcript || "").toLowerCase();
   const type =
     /code|bug|api|server|deploy|function|database|react|work|meeting|internship|interview/.test(t) ? "Career" :
@@ -157,11 +172,16 @@ function mockDraft(transcript) {
     /draw|paint|guitar|cook|game|sketch|photo|music|craft/.test(t) ? "Hobbies" :
     /workout|gym|run|sleep|meditat|doctor|nutrition|stress/.test(t) ? "Health & Wellness" : "Career";
   const firstSentence = (transcript || "Logged a win.").split(/[.!?\n]/)[0].trim().slice(0, 160);
-  return sanitize({
-    type,
-    win: firstSentence || "Logged a win.",
-    skill: type === "Career" ? "Debugging" : "General",
-  });
+  // Prefer the user's own title for skill + the callback match (mock has no model).
+  const skill = userSkill && userSkill.trim() ? userSkill.trim() : type === "Career" ? "Debugging" : "General";
+  const seen = (skillsSeen || []).find((s) => (s.skill || "").toLowerCase() === skill.toLowerCase());
+  const callback = seen ? `${ordinal((seen.count || 1) + 1)} time logging "${skill}" — you keep showing up for this.` : "";
+  return sanitize({ type, win: firstSentence || "Logged a win.", skill, callback });
+}
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 export { TYPES, useMock };

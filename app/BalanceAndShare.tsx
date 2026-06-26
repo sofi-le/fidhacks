@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Card from "./Card";
-import type { UiCard } from "./lib/api";
+import { getSuggestions } from "./lib/api";
+import type { UiCard, Suggestion } from "./lib/api";
 
 /**
  * Balance + Share screens for JourneyDex.
@@ -12,9 +13,9 @@ import type { UiCard } from "./lib/api";
  *   - <ShareScreen>   — profile panel (chart toggle + color index + drag-drop
  *                       "featured" dropzone) beside a filterable gallery
  *
- * Both screens are pure views over the cards the host loads from the backend —
+ * Both screens are pure views over the cards the host loads from Supabase —
  * counts/charts are derived client-side from that array, so they always reflect
- * whatever GET /api/cards returned.
+ * whatever the user's `cards` rows contain.
  */
 
 // ---------- palette ----------
@@ -46,6 +47,20 @@ const countByType = (cards: { type: string }[]): Counts => {
   cards.forEach((x) => { if (c[x.type] != null) c[x.type]++; });
   return c;
 };
+
+// "What to try next" suggestions are fetched once per session and cached here, so
+// switching tabs doesn't refetch — the ↻ button forces a fresh set.
+let _sugCache: Suggestion[] | null = null;
+const SUG_ACCENTS = TYPE_ORDER.map((k) => TYPES[k].deep);
+function localSuggestions(cards: UiCard[]): Suggestion[] {
+  const counts = countByType(cards);
+  const order = [...TYPE_ORDER].sort((a, b) => counts[b] - counts[a]);
+  const top = order[0], low = order[order.length - 1];
+  return [
+    { tag: "keep going", text: `${TYPES[top].label} is your strongest lane — keep the momentum.` },
+    { tag: "round it out", text: `Lightest on ${TYPES[low].label} — one small win there would balance things.` },
+  ];
+}
 
 // ---------- chart math ----------
 export function buildRadar(counts: Counts) {
@@ -158,12 +173,183 @@ export function ColorIndex({ counts, compact }: { counts: Counts; compact?: bool
   );
 }
 
+// ---------- wins over time (line chart) ----------
+const MON_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const fmtDay = (iso: string) => {
+  const p = iso.split("-");
+  return MON_SHORT[+p[1] - 1] + " " + +p[2];
+};
+
+// Every day (YYYY-MM-DD) from start..end inclusive. Pure UTC arithmetic so the
+// day grid never drifts by a day depending on the viewer's timezone.
+function eachDay(start: string, end: string): string[] {
+  const out: string[] = [];
+  const [ys, ms, ds] = start.split("-").map(Number);
+  const [ye, me, de] = end.split("-").map(Number);
+  let t = Date.UTC(ys, ms - 1, ds);
+  const tEnd = Date.UTC(ye, me - 1, de);
+  let guard = 0;
+  while (t <= tEnd && guard < 400) {
+    const d = new Date(t);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    out.push(`${d.getUTCFullYear()}-${mm}-${dd}`);
+    t += 86400000;
+    guard++;
+  }
+  return out;
+}
+
+// Cumulative wins per day for the chosen filter — a SINGLE series. "all" counts
+// every win; a specific type counts just that type. The dropdown selection also
+// sets the fill colour. y scales to a tidy multiple-of-4 ceiling.
+function buildWinsOverTime(cards: UiCard[], filter: string, today: string) {
+  const dated = cards.map((c) => c.date).filter(Boolean).sort();
+  if (!dated.length) return { days: [] as string[], points: [] as number[], color: "#bb8b4e", label: "All wins", yMax: 1, step: 1 };
+
+  // Span the real data: earliest win → the later of {today, latest win}, so a
+  // win logged "today" (past the demo's fixed today) still shows up.
+  const start = dated[0];
+  const last = dated[dated.length - 1];
+  const end = last > today ? last : today;
+  const days = eachDay(start, end);
+  const inFilter = (c: UiCard) => filter === "all" || c.type === filter;
+  const points = days.map((day) => cards.filter((c) => inFilter(c) && c.date <= day).length);
+
+  const color = filter === "all" ? "#bb8b4e" : TYPES[filter]?.deep || "#bb8b4e";
+  const label = filter === "all" ? "All wins" : TYPES[filter]?.label || "Wins";
+  const peak = Math.max(1, ...points);
+  const step = Math.max(1, Math.ceil(peak / 4));
+  return { days, points, color, label, yMax: step * 4, step };
+}
+
+// Smooth path through points using MONOTONE cubic interpolation
+// (Fritsch–Carlson). Unlike Catmull-Rom, it never overshoots between points, so
+// a cumulative (only-rising) series stays smooth without spurious dips/bumps.
+function smoothLine(pts: { x: number; y: number }[]): string {
+  const n = pts.length;
+  if (n < 2) return n ? `M${pts[0].x},${pts[0].y}` : "";
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+
+  // secant slopes between consecutive points
+  const dx: number[] = [], slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const h = xs[i + 1] - xs[i];
+    dx.push(h);
+    slope.push(h !== 0 ? (ys[i + 1] - ys[i]) / h : 0);
+  }
+
+  // tangents: average of neighbouring slopes, zeroed at local extrema
+  const m: number[] = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+
+  // Fritsch–Carlson clamp to keep each segment monotone (no overshoot)
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i], b = m[i + 1] / slope[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * slope[i]; m[i + 1] = t * b * slope[i]; }
+  }
+
+  // emit cubic-bezier segments from the Hermite tangents
+  let d = `M${xs[0].toFixed(1)},${ys[0].toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i];
+    const c1x = xs[i] + h / 3, c1y = ys[i] + (m[i] * h) / 3;
+    const c2x = xs[i + 1] - h / 3, c2y = ys[i + 1] - (m[i + 1] * h) / 3;
+    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${xs[i + 1].toFixed(1)},${ys[i + 1].toFixed(1)}`;
+  }
+  return d;
+}
+
+export function WinsAreaChart({ days, points, color, yMax, step, width = 520, height = 300 }: {
+  days: string[]; points: number[]; color: string; yMax: number; step: number; width?: number; height?: number;
+}) {
+  const padL = 30, padR = 14, padT = 12, padB = 26;
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+  const n = days.length;
+  const X = (i: number) => padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const Y = (v: number) => padT + innerH - (v / yMax) * innerH;
+
+  const yticks: number[] = [];
+  for (let v = 0; v <= yMax; v += step) yticks.push(v);
+
+  const want = Math.min(6, n);
+  const labelIdx: number[] = [];
+  for (let i = 0; i < want; i++) labelIdx.push(Math.round((i / Math.max(1, want - 1)) * (n - 1)));
+
+  const pts = points.map((v, i) => ({ x: X(i), y: Y(v) }));
+  const linePath = smoothLine(pts);
+  const baseY = Y(0);
+  const areaPath = n >= 2 ? `${linePath} L${X(n - 1).toFixed(1)},${baseY.toFixed(1)} L${X(0).toFixed(1)},${baseY.toFixed(1)} Z` : "";
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", overflow: "visible" }}>
+      <defs>
+        <linearGradient id="wotFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.32} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.04} />
+        </linearGradient>
+      </defs>
+      {yticks.map((v, i) => (
+        <g key={i}>
+          <line x1={padL} y1={Y(v)} x2={width - padR} y2={Y(v)} stroke="#ece3ce" strokeWidth={1} />
+          <text x={padL - 6} y={Y(v) + 3} textAnchor="end" style={{ fontFamily: '"Space Mono",monospace', fontSize: 9, fill: "#a59c8c" }}>{v}</text>
+        </g>
+      ))}
+      {labelIdx.map((idx, i) => (
+        <text key={i} x={X(idx)} y={height - 8} textAnchor="middle" style={{ fontFamily: '"Space Mono",monospace', fontSize: 9, fill: "#a59c8c" }}>{fmtDay(days[idx])}</text>
+      ))}
+      {areaPath && <path d={areaPath} fill="url(#wotFill)" stroke="none" />}
+      <path d={linePath} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+      {points.map((v, i) => {
+        // A dot only on days a win actually lands (the cumulative value rises).
+        const winDay = i === 0 ? v > 0 : v > points[i - 1];
+        return winDay ? (
+          <circle key={i} cx={X(i)} cy={Y(v)} r={3.2} fill={color} stroke="#fbf7ec" strokeWidth={1.4} />
+        ) : null;
+      })}
+    </svg>
+  );
+}
+
 // ---------- BALANCE ----------
 export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?: string }) {
   // The host passes its demo "today"; default keeps SSR pure (no live clock).
   const TODAY = today || "2026-06-25";
   const [chart, setChart] = useState("radar");
   const [period, setPeriod] = useState("week");
+  const [lineType, setLineType] = useState("all");
+
+  // Wins-over-time uses the FULL history (its own time axis), independent of the
+  // week/month toggle above.
+  const wot = buildWinsOverTime(cards, lineType, TODAY);
+
+  // "What to try next" — AI suggestions, fetched once (cached) and regenerable.
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(_sugCache || []);
+  const [sugLoading, setSugLoading] = useState(!_sugCache);
+  const fetchSuggestions = useCallback(async () => {
+    setSugLoading(true);
+    try {
+      const allCounts = countByType(cards);
+      const total = cards.length;
+      const balance = TYPE_ORDER.map((k) => ({ type: TYPES[k].label, count: allCounts[k], pct: total ? Math.round((allCounts[k] / total) * 100) : 0 }));
+      const recentWins = [...cards].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8).map((c) => c.win);
+      const s = await getSuggestions({ period: "all", balance, recentWins });
+      _sugCache = s;
+      setSuggestions(s);
+    } catch (e) {
+      console.error("[suggest]", e);
+      setSuggestions(localSuggestions(cards));
+    } finally {
+      setSugLoading(false);
+    }
+  }, [cards]);
+  useEffect(() => {
+    if (!_sugCache) fetchSuggestions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const d = new Date(TODAY);
   const weekStart = new Date(d); weekStart.setDate(d.getDate() - 6);
@@ -172,10 +358,9 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
   const periodCards = cards.filter((c) => c.date >= (period === "week" ? weekStartStr : monthStartStr));
   const counts = countByType(periodCards);
   const sorted = [...TYPE_ORDER].sort((a, b) => counts[b] - counts[a]);
-  const topType = sorted[0], lowType = sorted[sorted.length - 1];
+  const topType = sorted[0];
   const periodWord = period === "week" ? "this week" : "this month";
   const mirror = `Most of your energy ${periodWord} went to ${TYPES[topType].label}. The shape below is the honest mirror.`;
-  const recap = `You logged ${periodCards.length} ${periodCards.length === 1 ? "win" : "wins"} ${periodWord}. ${TYPES[topType].label} took the lead. Lightest on ${TYPES[lowType].label} — maybe give it some love this week?`;
 
   return (
     <section style={{ fontFamily: '"Hanken Grotesk",system-ui,sans-serif' }}>
@@ -205,11 +390,68 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
           <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "16px 18px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
             <ColorIndex counts={counts} />
           </div>
-          <div style={{ background: "#fbf2d3", border: "1.5px solid #ecdda6", borderRadius: 14, padding: "15px 18px", boxShadow: "0 8px 20px rgba(58,52,43,.08)", transform: "rotate(-.7deg)" }}>
-            <div style={{ fontFamily: '"Caveat",cursive', fontWeight: 700, fontSize: 21, color: "#a9842f", lineHeight: 1, marginBottom: 5 }}>note to self</div>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: "#6a5f3f" }}>{recap}</p>
+          <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "15px 16px 16px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11 }}>
+              <div style={{ fontFamily: '"Caveat",cursive', fontWeight: 700, fontSize: 21, color: "#a9842f", lineHeight: 1 }}>what to try next</div>
+              <button
+                onClick={() => { _sugCache = null; fetchSuggestions(); }}
+                disabled={sugLoading}
+                title="New suggestions"
+                style={{ border: "1.5px solid #e2d8c2", background: "#fffdf7", color: sugLoading ? "#cfc6b3" : "#8a7a5c", borderRadius: 9, width: 28, height: 28, cursor: sugLoading ? "default" : "pointer", fontSize: 14, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                ↻
+              </button>
+            </div>
+            {sugLoading && suggestions.length === 0 ? (
+              <div style={{ fontSize: 13.5, color: "#a59c8c", fontStyle: "italic", padding: "6px 2px" }}>thinking of suggestions…</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {suggestions.map((s, i) => {
+                  const ac = SUG_ACCENTS[i % SUG_ACCENTS.length];
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "#fffdf7", border: "1.5px solid #ece2cd", borderLeft: `3px solid ${ac}`, borderRadius: 10, padding: "10px 12px" }}>
+                      <span style={{ color: ac, fontSize: 12, lineHeight: 1.3, marginTop: 1, flex: "0 0 auto" }}>✦</span>
+                      <div>
+                        <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase", color: ac, marginBottom: 3 }}>{s.tag}</div>
+                        <div style={{ fontSize: 13.5, lineHeight: 1.4, color: "#3a342b" }}>{s.text}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* WINS OVER TIME (line) */}
+      <div style={{ marginTop: 20, maxWidth: 520, background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "18px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <div>
+            <h3 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 17, margin: 0, color: "#352f27" }}>Wins over time</h3>
+            <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 11, color: "#a59c8c", marginTop: 3 }}>cumulative wins by day</div>
+          </div>
+          <select
+            value={lineType}
+            onChange={(e) => setLineType(e.target.value)}
+            style={{ background: "#fffdf7", border: "1.5px solid #e2d8c2", borderRadius: 10, padding: "8px 12px", fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 600, fontSize: 13, color: "#6b6356", cursor: "pointer", outline: "none" }}
+          >
+            <option value="all">All categories</option>
+            {TYPE_ORDER.map((k) => <option key={k} value={k}>{TYPES[k].label}</option>)}
+          </select>
+        </div>
+        {wot.days.length ? (
+          <>
+            <WinsAreaChart days={wot.days} points={wot.points} color={wot.color} yMax={wot.yMax} step={wot.step} />
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6a6151" }}>
+                <span style={{ width: 13, height: 3, borderRadius: 2, background: wot.color }} />{wot.label}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign: "center", padding: "40px 8px", color: "#a59c8c", fontSize: 14 }}>No wins to chart yet.</div>
+        )}
       </div>
     </section>
   );

@@ -1,145 +1,61 @@
 // ============================================================================
-// Express server — the API the 4 teammates build on (build plan §8).
+// AI server — the ONLY backend left. Data (cards, images, profiles) now lives
+// in Supabase and the browser talks to it directly; this server exists solely
+// to keep the Anthropic key private. It is stateless: it reads no database.
 //
-//   POST /api/extract   { transcript }              -> Card   (the loop)
-//   GET  /api/cards                                  -> Card[] (the binder)
-//   GET  /api/skills                                 -> SkillSeen[]
-//   GET  /api/balance?period=week|month|all          -> BalanceSlice[]
-//   GET  /api/recap?period=week|month|all            -> { headline, body }
-//   POST /api/reset                                  -> { ok }
-//   GET  /health                                     -> { ok, mock }
+//   POST /api/extract  { transcript, recentCards, skillsSeen } -> { type, win, skill }
+//   POST /api/recap    { period, total, balance, recentWins }  -> { headline, body }
+//   GET  /health                                               -> { ok, mock }
 // ============================================================================
 
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { randomUUID } from "node:crypto";
 
-import {
-  saveCard,
-  getRecentCards,
-  getCardsInPeriod,
-  getAllCards,
-  getSkillsSeen,
-  getBalance,
-  deleteCard,
-  updateCard,
-  resetDemo,
-} from "./db.js";
 import { draftCard, useMock } from "./extract.js";
 import { generateRecap } from "./recap.js";
-
-const TYPES = ["Academic", "Career", "Hobbies", "Social & Family", "Financial", "Health & Wellness"];
+import { generateReflections } from "./reflect.js";
+import { generateSuggestions } from "./suggest.js";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, mock: useMock(), model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5" });
 });
 
-// The loop: transcript + memory -> AI summarizes the win (and classifies/names
-// when the user didn't). The optional `skill` (the user's own title) and `type`
-// in the body OVERRIDE the AI — so a typed title is used verbatim instead of the
-// model reusing a past skill tag.
+// Draft a card from a transcript + the user's memory (which the browser pulls
+// from Supabase and sends along). Returns ONLY the draft { type, win, skill } —
+// the browser applies the user's title/type overrides and writes the card to
+// Supabase itself. Never persists anything here.
 app.post("/api/extract", async (req, res) => {
   try {
     const b = req.body || {};
     const transcript = (b.transcript || "").toString().trim();
     if (!transcript) return res.status(400).json({ error: "transcript is required" });
 
-    // pull memory
-    const recentCards = getRecentCards(12);
-    const skillsSeen = getSkillsSeen();
+    const recentCards = Array.isArray(b.recentCards) ? b.recentCards : [];
+    const skillsSeen = Array.isArray(b.skillsSeen) ? b.skillsSeen : [];
+    const userSkill = typeof b.skill === "string" ? b.skill : "";
 
-    // AI drafts card (mainly the win summary)
-    const draft = await draftCard(transcript, { recentCards, skillsSeen });
-
-    const oneLine = (s, max) => s.toString().replace(/\s+/g, " ").trim().slice(0, max);
-    const userSkill = typeof b.skill === "string" && b.skill.trim() ? oneLine(b.skill, 80) : null;
-
-    // assemble the Card and persist (episodic + semantic, atomic).
-    // User-provided title/type win over the AI's guesses.
-    const card = {
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      type: TYPES.includes(b.type) ? b.type : draft.type,
-      win: draft.win,
-      skill: userSkill || draft.skill,
-    };
-    saveCard(card);
-
-    res.json(card);
+    const draft = await draftCard(transcript, { recentCards, skillsSeen, userSkill });
+    res.json(draft);
   } catch (err) {
     console.error("[/api/extract]", err);
-    res.status(500).json({ error: "failed to mint card" });
+    res.status(500).json({ error: "failed to draft card" });
   }
 });
 
-app.get("/api/cards", (_req, res) => res.json(getAllCards()));
-
-// Create a card from explicit, already-written fields (the Quest Journey mints a
-// completed quest straight into the binder — its text is the user's own, so it
-// skips the AI rewrite that /api/extract does). Persists episodic + semantic.
-app.post("/api/cards", (req, res) => {
-  const b = req.body || {};
-  const oneLine = (s, fb, max = 240) =>
-    (typeof s === "string" && s.trim() ? s.trim() : fb).replace(/\s+/g, " ").slice(0, max);
-
-  const ts = typeof b.timestamp === "string" && !isNaN(Date.parse(b.timestamp))
-    ? new Date(b.timestamp).toISOString()
-    : new Date().toISOString();
-
-  const card = {
-    id: randomUUID(),
-    timestamp: ts,
-    type: TYPES.includes(b.type) ? b.type : "Career",
-    win: oneLine(b.win, "Logged a win."),
-    skill: oneLine(b.skill, "General", 80),
-  };
-  saveCard(card);
-  res.status(201).json(card);
-});
-
-// Edit a card in place (the detail modal's "Edit" panel): title (skill),
-// description (win), and/or type. Only the fields present in the body are changed.
-// (Card art lives client-side in localStorage, not here.)
-app.patch("/api/cards/:id", (req, res) => {
-  const b = req.body || {};
-  const patch = {};
-  const oneLine = (s, max = 240) => s.toString().replace(/\s+/g, " ").trim().slice(0, max);
-
-  if (typeof b.skill === "string") patch.skill = oneLine(b.skill);
-  if (typeof b.win === "string") patch.win = oneLine(b.win);
-  if (typeof b.type === "string" && TYPES.includes(b.type)) patch.type = b.type;
-
-  const updated = updateCard(req.params.id, patch);
-  if (!updated) return res.status(404).json({ error: "card not found" });
-  res.json(updated);
-});
-
-// Delete one card (the binder's "Delete card" button)
-app.delete("/api/cards/:id", (req, res) => {
-  const removed = deleteCard(req.params.id);
-  if (!removed) return res.status(404).json({ error: "card not found" });
-  res.json({ ok: true });
-});
-
-app.get("/api/skills", (_req, res) => res.json(getSkillsSeen()));
-
-app.get("/api/balance", (req, res) => {
-  const period = ["week", "month", "all"].includes(req.query.period) ? req.query.period : "all";
-  res.json(getBalance(period));
-});
-
-// Weekly (or monthly) reflection for the Balance page's "note to self" box
-app.get("/api/recap", async (req, res) => {
+// Weekly/monthly "note to self" reflection. The browser computes the balance +
+// recent wins from Supabase and posts them; we just write the prose.
+app.post("/api/recap", async (req, res) => {
   try {
-    const period = ["week", "month", "all"].includes(req.query.period) ? req.query.period : "week";
-    const balance = getBalance(period);
-    const total = balance.reduce((sum, b) => sum + b.count, 0);
-    const recentWins = getCardsInPeriod(period, 8).map((c) => c.win);
+    const b = req.body || {};
+    const period = ["week", "month", "all"].includes(b.period) ? b.period : "week";
+    const balance = Array.isArray(b.balance) ? b.balance : [];
+    const total = typeof b.total === "number" ? b.total : balance.reduce((s, x) => s + (x.count || 0), 0);
+    const recentWins = Array.isArray(b.recentWins) ? b.recentWins : [];
 
     const recap = await generateRecap({ period, total, balance, recentWins });
     res.json(recap);
@@ -149,13 +65,37 @@ app.get("/api/recap", async (req, res) => {
   }
 });
 
-app.post("/api/reset", (_req, res) => {
-  resetDemo();
-  res.json({ ok: true });
+// "What to try next" — short forward-looking suggestions for the Stats page.
+app.post("/api/suggest", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const period = ["week", "month", "all"].includes(b.period) ? b.period : "all";
+    const balance = Array.isArray(b.balance) ? b.balance : [];
+    const recentWins = Array.isArray(b.recentWins) ? b.recentWins : [];
+    const suggestions = await generateSuggestions({ period, balance, recentWins });
+    res.json({ suggestions });
+  } catch (err) {
+    console.error("[/api/suggest]", err);
+    res.status(500).json({ error: "failed to suggest" });
+  }
+});
+
+// Memory reflections — the binder reflects on the whole history. The browser
+// sends the user's cards; we return a few "we remember you" lines.
+app.post("/api/reflect", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cards = Array.isArray(b.cards) ? b.cards : [];
+    const reflections = await generateReflections({ cards });
+    res.json({ reflections });
+  } catch (err) {
+    console.error("[/api/reflect]", err);
+    res.status(500).json({ error: "failed to reflect" });
+  }
 });
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
-  console.log(`Proof-of-Skill Ledger backend on http://localhost:${PORT}`);
+  console.log(`JourneyDex AI server on http://localhost:${PORT}`);
   console.log(`  mode: ${useMock() ? "MOCK (no AI)" : "LIVE (Claude)"}`);
 });

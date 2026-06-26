@@ -142,6 +142,13 @@ export default function Card({
       </div>
       <div style={nameStyle}>{c.skill || ""}</div>
       <div style={winStyle}>{c.win || ""}</div>
+      {s && c.callback && (
+        // The system "talking back": a growth callback when this skill is in memory.
+        <div style={{ display: "flex", gap: "7px", alignItems: "flex-start", background: t.fill, borderRadius: rad - 7 + "px", padding: "8px 10px", marginTop: "1px" }}>
+          <span style={{ fontSize: "13px", lineHeight: 1.2, color: t.deep, flex: "0 0 auto" }}>✦</span>
+          <span style={{ fontFamily: '"Caveat", cursive', fontSize: "16.5px", fontWeight: 600, lineHeight: 1.18, color: t.ink }}>{c.callback}</span>
+        </div>
+      )}
       <div style={footerStyle}>{date}</div>
     </div>
   );

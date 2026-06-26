@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import type { NewCardInput } from "./lib/api";
+import type { NewCardInput, ApiQuest } from "./lib/api";
+import { getQuests, seedQuestsIfEmpty, createQuest, updateQuest, deleteQuest } from "./lib/api";
 
 /**
  * QuestJourney — the "Challenges" screen.
@@ -10,8 +11,9 @@ import type { NewCardInput } from "./lib/api";
  * minted into the user's binder (via the onAddToBinder callback),
  * which removes them from the journey.
  *
- * Persists quests to localStorage under "pos_challenges" (independent of the
- * binder backend); only the "add to binder" action talks to the server.
+ * Quests are persisted per-user in Supabase (public.quests), seeded from SEED
+ * on first run. Completing a quest and adding it to the binder creates a card
+ * (also in Supabase) and removes the quest.
  */
 
 type Status = "not_started" | "in_progress" | "completed";
@@ -53,7 +55,6 @@ type BinderCard = NewCardInput & { id: string; fromQuest: boolean };
 
 interface QuestJourneyProps {
   onAddToBinder?: (card: BinderCard) => void;
-  initialQuests?: Quest[];
   today?: string;
 }
 
@@ -100,43 +101,27 @@ function smoothPath(pts: Pt[]) {
   return d;
 }
 
-// ---- persistence (quests live in localStorage; the binder lives on the server) ----
-const CHAL_KEY = "pos_challenges";
-const normalizeQ = (q: Quest): Quest => {
-  const status: Status = q.status || (q.done ? "completed" : "not_started");
-  return { ...q, status, done: status === "completed" };
-};
-function loadChallenges(seed: Quest[]): Quest[] {
-  try {
-    const s = JSON.parse(localStorage.getItem(CHAL_KEY) || "null");
-    if (Array.isArray(s)) return s.map(normalizeQ);
-  } catch {
-    /* no storage (SSR) or bad JSON — fall back to seed */
-  }
-  return seed.map(normalizeQ);
-}
-function saveChallenges(c: Quest[]) {
-  try {
-    localStorage.setItem(CHAL_KEY, JSON.stringify(c));
-  } catch {
-    /* storage unavailable — ignore */
-  }
-}
+// ---- mapping (quests live in Supabase via lib/api) ----
+// Add the derived `done` flag the UI uses on top of the stored status.
+const withDone = (q: ApiQuest): Quest => ({
+  ...q,
+  status: (q.status as Status) || "not_started",
+  done: q.status === "completed",
+});
 
-const SEED: Quest[] = [
-  { id:"q1", type:"career",            skill:"Ship a CLI tool",         aim:"Publish a small command-line tool people can install.", date:"2026-05-20", deadline:"2026-06-15", status:"completed", completedDate:"2026-06-15", win:"Shipped a CLI ~40 people installed." },
-  { id:"q2", type:"health & wellness", skill:"Run a clean 10k",         aim:"Finish a 10k start to finish without walking.",         date:"2026-05-25", deadline:"2026-08-01", status:"completed", completedDate:"2026-06-20", win:"Ran the full 10k without stopping." },
-  { id:"q3", type:"social & family",   skill:"Give a lightning talk",   aim:"Speak 5 minutes in front of a real audience.",          date:"2026-06-01", deadline:"",           status:"completed", completedDate:"2026-06-15", win:"Gave a 5-min talk to a room of 30." },
-  { id:"q4", type:"academic",          skill:"Finish the Rust book",    aim:"Read and do the exercises through every chapter.",      date:"2026-06-10", deadline:"2026-07-19", status:"in_progress" },
-  { id:"q5", type:"career",            skill:"Build and launch a site", aim:"Design, build, and launch a personal project.",         date:"2026-06-12", deadline:"2026-08-15", status:"not_started" },
-  { id:"q6", type:"hobbies",           skill:"30 days of journaling",   aim:"Write a short journal entry every day for 30 days.",     date:"2026-06-14", deadline:"",           status:"not_started" },
+const SEED: ApiQuest[] = [
+  { id:"q1", type:"career",            skill:"Ship my first PR",        aim:"Open and merge a pull request on a real project.",       date:"2026-05-18", deadline:"2026-06-10", status:"completed", completedDate:"2026-06-08", win:"Merged my first PR into the team repo." },
+  { id:"q2", type:"health & wellness", skill:"Run a clean 5k",          aim:"Finish a 5k without stopping to walk.",                  date:"2026-05-24", deadline:"2026-07-01", status:"completed", completedDate:"2026-06-19", win:"Ran the whole 5k without a single walk break." },
+  { id:"q3", type:"academic",          skill:"Finish data structures",  aim:"Work through every chapter and exercise set.",           date:"2026-06-02", deadline:"2026-08-15", status:"in_progress" },
+  { id:"q4", type:"social & family",   skill:"Host a dinner",           aim:"Cook and host a dinner for friends at home.",            date:"2026-06-12", deadline:"2026-07-20", status:"not_started" },
+  { id:"q5", type:"hobbies",           skill:"Learn 3 guitar songs",    aim:"Play three songs start to finish from memory.",          date:"2026-06-14", deadline:"2026-09-01", status:"not_started" },
+  { id:"q6", type:"career",            skill:"Write a book",            aim:"Draft and finish a complete manuscript.",                date:"2026-06-20", deadline:"2026-12-12", status:"not_started" },
 ];
 
-export default function QuestJourney({ onAddToBinder, initialQuests, today }: QuestJourneyProps) {
+export default function QuestJourney({ onAddToBinder, today }: QuestJourneyProps) {
   const TODAY = today || "2026-06-25";
-  // Read persisted quests in the initializer (loadChallenges falls back to the
-  // seed when localStorage is unavailable, e.g. during SSR).
-  const [challenges, setChallenges] = useState<Quest[]>(() => loadChallenges(initialQuests || SEED));
+  const [challenges, setChallenges] = useState<Quest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", aim: "", type: "career", deadline: "" });
   const [completingId, setCompletingId] = useState<string | null>(null);
@@ -144,10 +129,6 @@ export default function QuestJourney({ onAddToBinder, initialQuests, today }: Qu
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const persist = (next: Quest[]) => {
-    saveChallenges(next);
-    setChallenges(next);
-  };
   const fireToast = (msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -155,35 +136,88 @@ export default function QuestJourney({ onAddToBinder, initialQuests, today }: Qu
   };
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  // ---- actions ----
-  const addChallenge = () => {
+  // Load this user's quests from Supabase; seed the journey on first run.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        let qs = await getQuests();
+        if (qs.length === 0) {
+          const seeded = await seedQuestsIfEmpty(SEED);
+          if (seeded) qs = seeded;
+        }
+        if (alive) setChallenges(qs.map(withDone));
+      } catch (e) {
+        console.error("[quests]", e);
+        if (alive) fireToast("Couldn't load quests — run migration 0002?");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reflect a single quest's changed fields in local state.
+  const patchLocal = (id: string, changes: Partial<Quest>) =>
+    setChallenges((cs) => cs.map((x) => (x.id === id ? { ...x, ...changes } : x)));
+
+  // ---- actions (write to Supabase, then update local state) ----
+  const addChallenge = async () => {
     const title = form.title.trim(), aim = form.aim.trim();
     if (!title) return fireToast("Name your quest");
     if (!aim) return fireToast('Describe what "done" looks like');
-    const q: Quest = { id: "q-" + crypto.randomUUID(), type: form.type, skill: title, aim, date: TODAY, deadline: form.deadline || "", status: "not_started", done: false };
-    persist([...challenges, q]);
-    setShowForm(false);
-    setForm({ title: "", aim: "", type: "career", deadline: "" });
-    fireToast("Quest set — go earn it");
+    const draft: ApiQuest = {
+      id: "q-" + crypto.randomUUID(), type: form.type, skill: title, aim,
+      date: TODAY, deadline: form.deadline || "", status: "not_started",
+    };
+    try {
+      const created = await createQuest(draft);
+      setChallenges((cs) => [...cs, withDone(created)]);
+      setShowForm(false);
+      setForm({ title: "", aim: "", type: "career", deadline: "" });
+      fireToast("Quest set — go earn it");
+    } catch (e) {
+      console.error(e);
+      fireToast("Couldn't save the quest");
+    }
   };
-  const removeChallenge = (id: string) => persist(challenges.filter((q) => q.id !== id));
-  const startQuest = (id: string) => {
-    persist(challenges.map((x) => (x.id === id ? { ...x, status: "in_progress" as Status } : x)));
-    fireToast("Quest started — you're on the path");
+  const removeChallenge = async (id: string) => {
+    setChallenges((cs) => cs.filter((q) => q.id !== id)); // optimistic
+    try {
+      await deleteQuest(id);
+    } catch (e) {
+      console.error(e);
+      fireToast("Couldn't delete the quest");
+    }
   };
-  const completeChallenge = () => {
+  const startQuest = async (id: string) => {
+    patchLocal(id, { status: "in_progress" });
+    try {
+      await updateQuest(id, { status: "in_progress" });
+      fireToast("Quest started — you're on the path");
+    } catch (e) {
+      console.error(e);
+      fireToast("Couldn't update the quest");
+    }
+  };
+  const completeChallenge = async () => {
     const win = log.win.trim();
     if (!win) return fireToast("How did it actually go?");
-    persist(challenges.map((x) =>
-      x.id === completingId
-        ? { ...x, status: "completed" as Status, done: true, win, completedDate: TODAY }
-        : x
-    ));
+    const id = completingId;
+    if (!id) return;
+    patchLocal(id, { status: "completed", done: true, win, completedDate: TODAY });
     setCompletingId(null);
     setLog({ win: "" });
-    fireToast("Quest complete — add it to your binder when ready ✓");
+    try {
+      await updateQuest(id, { status: "completed", win, completedDate: TODAY });
+      fireToast("Quest complete — add it to your binder when ready ✓");
+    } catch (e) {
+      console.error(e);
+      fireToast("Couldn't save the quest");
+    }
   };
-  const addQuestToBinder = (id: string) => {
+  const addQuestToBinder = async (id: string) => {
     const q = challenges.find((x) => x.id === id);
     if (!q || q.status !== "completed") return;
     const card: BinderCard = {
@@ -192,7 +226,12 @@ export default function QuestJourney({ onAddToBinder, initialQuests, today }: Qu
     };
     if (onAddToBinder) onAddToBinder(card);
     else console.log("add to binder:", card);
-    persist(challenges.filter((x) => x.id !== id));
+    setChallenges((cs) => cs.filter((x) => x.id !== id)); // optimistic
+    try {
+      await deleteQuest(id);
+    } catch (e) {
+      console.error(e);
+    }
     fireToast("Added to your binder — nice work ✓");
   };
   const cardClick = (q: Quest, locked: boolean) => {
@@ -308,7 +347,11 @@ export default function QuestJourney({ onAddToBinder, initialQuests, today }: Qu
       )}
 
       {/* JOURNEY MAP */}
-      {N > 0 ? (
+      {loading ? (
+        <div style={{ background: "#fbf7ec", border: "1.5px dashed #e2d8c2", borderRadius: 18, padding: "56px 24px", textAlign: "center", color: "#a59c8c", fontSize: 14 }}>
+          Loading your quests…
+        </div>
+      ) : N > 0 ? (
         <>
           <div style={{ overflowX: "auto", overflowY: "hidden", border: "1.5px solid #ece3d0", borderRadius: 20, background: "#f6efe0", backgroundImage: "radial-gradient(#e3d9c4 1px,transparent 1px)", backgroundSize: "22px 22px", padding: 4, WebkitOverflowScrolling: "touch" }}>
             <div style={{ position: "relative", width: canvasW, height: canvasH, margin: "0 auto" }}>
