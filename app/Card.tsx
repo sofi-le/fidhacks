@@ -32,7 +32,7 @@ export default function Card({
   const pad = s ? 13 : 9;
   const rad = s ? 18 : 13;
   const gap = s ? 9 : 6;
-  const artH = s ? 156 : 94;
+  const artH = s ? 156 : 80;
 
   const frameStyle: React.CSSProperties = {
     width: W + "px",
@@ -104,6 +104,18 @@ export default function Card({
     fontSize: (s ? 20 : 14) + "px",
     lineHeight: 1.12,
     color: "#352f27",
+    // Small binder cards reserve a fixed two-line title block (clamped with an
+    // ellipsis) so every card is the same height regardless of title length.
+    // The full, untruncated title is shown on the large card in the detail modal.
+    ...(s
+      ? {}
+      : {
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+          minHeight: "2.24em", // 2 lines at lineHeight 1.12
+        }),
   };
   const winStyle: React.CSSProperties = {
     fontSize: (s ? 13.5 : 10.5) + "px",
@@ -113,6 +125,9 @@ export default function Card({
     WebkitLineClamp: s ? ("none" as unknown as number) : 2,
     WebkitBoxOrient: "vertical",
     overflow: "hidden",
+    // Reserve a fixed two-line block on small cards so a one-line win doesn't
+    // shrink the card relative to a two-line one.
+    ...(s ? {} : { minHeight: "2.7em" }), // 2 lines at lineHeight 1.35
   };
   const footerStyle: React.CSSProperties = {
     marginTop: "auto",

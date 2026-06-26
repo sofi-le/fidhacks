@@ -3,8 +3,10 @@
 // in Supabase and the browser talks to it directly; this server exists solely
 // to keep the Anthropic key private. It is stateless: it reads no database.
 //
-//   POST /api/extract  { transcript, recentCards, skillsSeen } -> { type, win, skill }
-//   POST /api/recap    { period, total, balance, recentWins }  -> { headline, body }
+//   POST /api/extract  { transcript, recentCards, skillsSeen } -> { type, win, skill, callback }
+//   POST /api/suggest  { period, balance, recentWins }         -> { suggestions[] }
+//   POST /api/reflect  { cards }                               -> { reflections[] }
+//   POST /api/coach    { quest }                               -> { encouragement }
 //   GET  /health                                               -> { ok, mock }
 // ============================================================================
 
@@ -13,9 +15,9 @@ import express from "express";
 import cors from "cors";
 
 import { draftCard, useMock } from "./extract.js";
-import { generateRecap } from "./recap.js";
 import { generateReflections } from "./reflect.js";
 import { generateSuggestions } from "./suggest.js";
+import { generateCoach } from "./coach.js";
 
 const app = express();
 app.use(cors());
@@ -47,24 +49,6 @@ app.post("/api/extract", async (req, res) => {
   }
 });
 
-// Weekly/monthly "note to self" reflection. The browser computes the balance +
-// recent wins from Supabase and posts them; we just write the prose.
-app.post("/api/recap", async (req, res) => {
-  try {
-    const b = req.body || {};
-    const period = ["week", "month", "all"].includes(b.period) ? b.period : "week";
-    const balance = Array.isArray(b.balance) ? b.balance : [];
-    const total = typeof b.total === "number" ? b.total : balance.reduce((s, x) => s + (x.count || 0), 0);
-    const recentWins = Array.isArray(b.recentWins) ? b.recentWins : [];
-
-    const recap = await generateRecap({ period, total, balance, recentWins });
-    res.json(recap);
-  } catch (err) {
-    console.error("[/api/recap]", err);
-    res.status(500).json({ error: "failed to generate recap" });
-  }
-});
-
 // "What to try next" — short forward-looking suggestions for the Stats page.
 app.post("/api/suggest", async (req, res) => {
   try {
@@ -77,6 +61,18 @@ app.post("/api/suggest", async (req, res) => {
   } catch (err) {
     console.error("[/api/suggest]", err);
     res.status(500).json({ error: "failed to suggest" });
+  }
+});
+
+// Quest coach — an encouraging nudge to finish the next card in the user's quest.
+app.post("/api/coach", async (req, res) => {
+  try {
+    const quest = (req.body && req.body.quest) || null;
+    const encouragement = await generateCoach({ quest });
+    res.json({ encouragement });
+  } catch (err) {
+    console.error("[/api/coach]", err);
+    res.status(500).json({ error: "failed to coach" });
   }
 });
 
