@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Card from "./Card";
+import CoachPanel from "./CoachPanel";
 import { getSuggestions } from "./lib/api";
 import type { UiCard, Suggestion } from "./lib/api";
 
@@ -379,17 +380,48 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.05fr .95fr", gap: 20, alignItems: "stretch" }}>
-        <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "22px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 18, alignItems: "start" }}>
+        {/* LEFT column: the two charts */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "22px 18px 14px", boxShadow: "0 6px 20px rgba(58,52,43,.05)", display: "flex", flexDirection: "column", alignItems: "center" }}>
           {chart === "radar" ? <RadarChart counts={counts} /> : <PieChart counts={counts} />}
           <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 11, color: "#a59c8c", marginTop: 4 }}>
             {period === "week" ? "this week" : "this month"}
           </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "16px 18px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
-            <ColorIndex counts={counts} />
+          {/* per-category counts, moved off the old index panel onto the chart */}
+          <div style={{ width: "100%", marginTop: 12, paddingTop: 12, borderTop: "1px solid #f0e8d6" }}>
+            <ColorIndex counts={counts} compact />
           </div>
+        </div>
+        {/* second chart, in the left column so it fills the width */}
+        <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "16px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+            <div>
+              <h3 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 17, margin: 0, color: "#352f27" }}>Wins over time</h3>
+              <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 11, color: "#a59c8c", marginTop: 3 }}>cumulative wins by day</div>
+            </div>
+            <select value={lineType} onChange={(e) => setLineType(e.target.value)} style={{ background: "#fffdf7", border: "1.5px solid #e2d8c2", borderRadius: 10, padding: "8px 12px", fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 600, fontSize: 13, color: "#6b6356", cursor: "pointer", outline: "none" }}>
+              <option value="all">All categories</option>
+              {TYPE_ORDER.map((k) => <option key={k} value={k}>{TYPES[k].label}</option>)}
+            </select>
+          </div>
+          {wot.days.length ? (
+            <>
+              <WinsAreaChart days={wot.days} points={wot.points} color={wot.color} yMax={wot.yMax} step={wot.step} />
+              <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6a6151" }}>
+                  <span style={{ width: 13, height: 3, borderRadius: 2, background: wot.color }} />{wot.label}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "40px 8px", color: "#a59c8c", fontSize: 14 }}>No wins to chart yet.</div>
+          )}
+        </div>
+        </div>{/* /LEFT column */}
+        {/* RIGHT column: the AI panels */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <CoachPanel />
           <div style={{ background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "15px 16px 16px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11 }}>
               <div style={{ fontFamily: '"Caveat",cursive', fontWeight: 700, fontSize: 21, color: "#a9842f", lineHeight: 1 }}>what to try next</div>
@@ -409,11 +441,11 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
                 {suggestions.map((s, i) => {
                   const ac = SUG_ACCENTS[i % SUG_ACCENTS.length];
                   return (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "#fffdf7", border: "1.5px solid #ece2cd", borderLeft: `3px solid ${ac}`, borderRadius: 10, padding: "10px 12px" }}>
-                      <span style={{ color: ac, fontSize: 12, lineHeight: 1.3, marginTop: 1, flex: "0 0 auto" }}>✦</span>
+                    <div key={i} style={{ display: "flex", gap: 11, alignItems: "flex-start", background: `${ac}12`, border: `1.5px solid ${ac}33`, borderRadius: 14, padding: "11px 12px" }}>
+                      <div style={{ width: 26, height: 26, borderRadius: "50%", background: ac, color: "#fffdf7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flex: "0 0 auto", boxShadow: `0 2px 6px ${ac}55` }}>✦</div>
                       <div>
-                        <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase", color: ac, marginBottom: 3 }}>{s.tag}</div>
-                        <div style={{ fontSize: 13.5, lineHeight: 1.4, color: "#3a342b" }}>{s.text}</div>
+                        <div style={{ fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 700, fontSize: 12.5, color: ac, marginBottom: 2 }}>{s.tag}</div>
+                        <div style={{ fontSize: 13.5, lineHeight: 1.45, color: "#3a342b" }}>{s.text}</div>
                       </div>
                     </div>
                   );
@@ -424,35 +456,6 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
         </div>
       </div>
 
-      {/* WINS OVER TIME (line) */}
-      <div style={{ marginTop: 20, maxWidth: 520, background: "#fbf7ec", border: "1.5px solid #ece2cd", borderRadius: 18, padding: "18px 18px 12px", boxShadow: "0 6px 20px rgba(58,52,43,.05)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-          <div>
-            <h3 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 17, margin: 0, color: "#352f27" }}>Wins over time</h3>
-            <div style={{ fontFamily: '"Space Mono",monospace', fontSize: 11, color: "#a59c8c", marginTop: 3 }}>cumulative wins by day</div>
-          </div>
-          <select
-            value={lineType}
-            onChange={(e) => setLineType(e.target.value)}
-            style={{ background: "#fffdf7", border: "1.5px solid #e2d8c2", borderRadius: 10, padding: "8px 12px", fontFamily: '"Hanken Grotesk",sans-serif', fontWeight: 600, fontSize: 13, color: "#6b6356", cursor: "pointer", outline: "none" }}
-          >
-            <option value="all">All categories</option>
-            {TYPE_ORDER.map((k) => <option key={k} value={k}>{TYPES[k].label}</option>)}
-          </select>
-        </div>
-        {wot.days.length ? (
-          <>
-            <WinsAreaChart days={wot.days} points={wot.points} color={wot.color} yMax={wot.yMax} step={wot.step} />
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6a6151" }}>
-                <span style={{ width: 13, height: 3, borderRadius: 2, background: wot.color }} />{wot.label}
-              </span>
-            </div>
-          </>
-        ) : (
-          <div style={{ textAlign: "center", padding: "40px 8px", color: "#a59c8c", fontSize: 14 }}>No wins to chart yet.</div>
-        )}
-      </div>
     </section>
   );
 }

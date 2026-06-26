@@ -286,6 +286,25 @@ export async function getSuggestions(input: {
   return Array.isArray(j?.suggestions) ? j.suggestions : [];
 }
 
+// --- quest coach ------------------------------------------------------------
+
+// A short encouragement to complete the next card in the user's quest.
+export async function getCoach(quest: {
+  skill: string;
+  aim?: string;
+  type?: string;
+  deadline?: string;
+}): Promise<string> {
+  const r = await fetch(`${AI_BASE}/api/coach`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ quest }),
+  });
+  if (!r.ok) throw new Error(`getCoach ${r.status}`);
+  const j = await r.json();
+  return (j?.encouragement || "").toString();
+}
+
 // --- memory reflections -----------------------------------------------------
 
 export interface Reflection {
