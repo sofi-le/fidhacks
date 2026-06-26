@@ -2,6 +2,7 @@
 import React from "react";
 import Card from "./Card";
 import QuestJourney from "./QuestJourney";
+import PackReveal from "./PackReveal";
 import { BalanceScreen, ShareScreen } from "./BalanceAndShare";
 import { getCards, extractCard, deleteCardApi, updateCardApi, createCard, NewCardInput, UiCard, TYPE_LABEL } from "./lib/api";
 
@@ -47,7 +48,7 @@ type S = {
   addText: string;
   recording: boolean;
   summarizing: boolean;
-  justAdded: boolean;
+  revealCard: UiCard | null; // the freshly-minted card shown in the pack-open animation
   editing: boolean;
   editSkill: string;
   editWin: string;
@@ -104,7 +105,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
     addText: "",
     recording: false,
     summarizing: false,
-    justAdded: false,
+    revealCard: null,
     editing: false,
     editSkill: "",
     editWin: "",
@@ -140,10 +141,9 @@ export default class JourneyDex extends React.Component<unknown, S> {
   // rewrite), refresh the binder, and jump to it.
   async addQuestToBinder(card: NewCardInput) {
     try {
-      await createCard(card);
+      const created = await createCard(card);
       await this.loadCards();
-      this.setState({ view: "binder" });
-      this.fireToast("Added to your binder — nice work ✓");
+      this.setState({ revealCard: created });
     } catch {
       this.fireToast("Couldn't add to binder — backend offline?");
     }
@@ -308,9 +308,9 @@ export default class JourneyDex extends React.Component<unknown, S> {
     this.setState({ summarizing: true });
     try {
       // The backend's AI + memory mint the real card and persist it.
-      await extractCard(`${title}. ${text}`);
+      const card = await extractCard(`${title}. ${text}`);
       await this.loadCards();
-      this.setState({ justAdded: true, addTitle: "", addText: "", recording: false, summarizing: false });
+      this.setState({ revealCard: card, addTitle: "", addText: "", recording: false, summarizing: false });
     } catch {
       this.setState({ summarizing: false });
       this.fireToast("Couldn't add the card — backend offline?");
@@ -618,7 +618,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
       cursor: "pointer",
       boxShadow: "0 8px 22px rgba(58,52,43,.18)",
     };
-    const primaryBtnStyle: React.CSSProperties = { ...addSubmitStyle, width: "auto", padding: "13px 22px" };
     const ghostBtnStyle: React.CSSProperties = {
       background: "#fbf7ec",
       color: "#6b6356",
@@ -831,21 +830,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
           {/* ADD WIN */}
           {st.view === "add" && (
             <section>
-              {st.justAdded && (
-                <div style={{ maxWidth: "520px", margin: "24px auto", background: "#fbf7ec", border: "1.5px solid #cfe6d6", borderRadius: "20px", padding: "40px 28px", textAlign: "center", boxShadow: "0 10px 30px rgba(58,52,43,.08)" }}>
-                  <div style={{ width: "64px", height: "64px", borderRadius: "50%", background: "#cdeedc", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3f9b6e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
-                  </div>
-                  <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "26px", color: "#352f27", marginBottom: "6px" }}>New card added!</div>
-                  <div style={{ fontSize: "14px", color: "#8a8275", marginBottom: "22px" }}>It&apos;s the freshest card in your binder.</div>
-                  <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
-                    <button style={ghostBtnStyle} onClick={() => this.setState({ justAdded: false })}>Add another</button>
-                    <button style={primaryBtnStyle} onClick={() => this.setState({ view: "binder", justAdded: false })}>View binder</button>
-                  </div>
-                </div>
-              )}
-              {!st.justAdded && (
-                <div style={{ maxWidth: "560px", margin: "0 auto" }}>
+              <div style={{ maxWidth: "560px", margin: "0 auto" }}>
                   <div style={{ textAlign: "center", marginBottom: "22px" }}>
                     <div style={{ fontFamily: "'Caveat',cursive", fontSize: "22px", color: "#bb8b4e", lineHeight: 1, marginBottom: "2px" }}>every win counts</div>
                     <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "30px", margin: 0, color: "#352f27" }}>Capture a win</h2>
@@ -911,7 +896,6 @@ export default class JourneyDex extends React.Component<unknown, S> {
 
                   <button style={addSubmitStyle} onClick={() => this.submitAdd()}>Add to binder</button>
                 </div>
-              )}
             </section>
           )}
         </div>
@@ -921,6 +905,15 @@ export default class JourneyDex extends React.Component<unknown, S> {
           <div style={{ position: "fixed", bottom: "26px", left: "50%", transform: "translateX(-50%)", background: "#3a342b", color: "#fdf7e8", padding: "11px 20px", borderRadius: "999px", fontSize: "14px", fontWeight: 600, boxShadow: "0 10px 30px rgba(58,52,43,.3)", zIndex: 60 }}>
             {st.toastText}
           </div>
+        )}
+
+        {/* PACK REVEAL — plays when a new card is minted (add a win, or earn a quest) */}
+        {st.revealCard && (
+          <PackReveal
+            card={st.revealCard}
+            onClose={() => this.setState({ revealCard: null, view: "binder" })}
+            renderCard={(c) => <Card card={c} size="lg" />}
+          />
         )}
 
         {/* DETAIL MODAL */}
