@@ -6,10 +6,20 @@ body { background: #f3eddf; }
 
 @keyframes popIn { 0% { opacity: 0; transform: translateY(8px) scale(.98); } 100% { opacity: 1; transform: none; } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes leafNext { from { transform: rotateY(0deg); } to { transform: rotateY(-168deg); } }
-@keyframes leafPrev { from { transform: rotateY(0deg); } to { transform: rotateY(168deg); } }
+@keyframes leafNext { from { transform: rotateY(0deg); } to { transform: rotateY(-180deg); } }
+@keyframes leafPrev { from { transform: rotateY(0deg); } to { transform: rotateY(180deg); } }
 @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes micPulse { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(1.7); opacity: 0; } }
+
+/* binder cover: the cover leaf is hinged at the spine and swings fully open
+   (coverOpen); meanwhile the spread slides from the centered single-page start
+   to its final centered two-page position (coverShift, in book-space units —
+   half a page + half the spine ≈ 204px). backface-visibility hides the cover
+   once it passes 90deg, by which point the pages are revealed. */
+@keyframes coverOpen { from { transform: rotateY(0deg); } to { transform: rotateY(-180deg); } }
+@keyframes coverShift { from { transform: translateX(-204px); } to { transform: translateX(0); } }
+@keyframes coverRevealIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes coverHint { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
 
 /* card hover lift (was style-hover in the design) */
 .pos-card { transition: transform .16s ease; }

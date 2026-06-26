@@ -35,6 +35,29 @@ const TYPES: Record<string, { label: string; fill: string; deep: string; ink: st
 };
 const TYPE_ORDER = ["academic", "career", "hobbies", "social & family", "financial", "health & wellness"];
 
+// Daily affirmations shown on the closed binder cover. A new login lands on the
+// "closed" book; the quote is chosen by the day of the year so it stays stable
+// for the whole day and rotates daily. Replace these 10 placeholders with the
+// real quotes when provided (keep the array length at 10, or adjust freely).
+const AFFIRMATIONS = [
+  "Every small win is a step worth keeping.",
+  "Progress is built one page at a time.",
+  "You are further along than you were yesterday.",
+  "Small wins, stacked, become a story.",
+  "Showing up today is already a victory.",
+  "Your effort counts, even when no one's watching.",
+  "Collect the moments you're proud of.",
+  "Growth hides inside the ordinary days.",
+  "Be patient with yourself — you're learning.",
+  "Today holds one more win worth catching.",
+];
+function dailyAffirmation(): string {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now.getTime() - start.getTime()) / 86400000);
+  return AFFIRMATIONS[((dayOfYear % AFFIRMATIONS.length) + AFFIRMATIONS.length) % AFFIRMATIONS.length];
+}
+
 const FAV_KEY = "pos_favorites";
 function loadFavs(): string[] {
   try {
@@ -53,6 +76,9 @@ type S = {
   view: string;
   filter: string;
   sortDir: string;
+  // Binder cover: starts "closed" on login (front cover + daily affirmation),
+  // plays "opening" on first tap, then settles "open" into the normal binder.
+  coverState: "closed" | "opening" | "open";
   spread: number;
   turning: string | null;
   selectedId: string | null;
@@ -116,6 +142,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
   _baseText = "";
   _ft: ReturnType<typeof setTimeout> | null = null;
   _tt: ReturnType<typeof setTimeout> | null = null;
+  _coverT: ReturnType<typeof setTimeout> | null = null;
   _onResize: () => void = () => {};
   _fitTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -123,6 +150,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
     view: "binder",
     filter: "all",
     sortDir: "desc",
+    coverState: "closed",
     spread: 0,
     turning: null,
     selectedId: null,
@@ -180,11 +208,13 @@ export default class JourneyDex extends React.Component<unknown, S> {
     if (user) {
       if (this._initedFor !== user.id) {
         this._initedFor = user.id;
+        // A fresh sign-in always starts with the binder closed on its cover.
+        this.setState({ coverState: "closed", spread: 0 });
         this.initSession(evt === "SIGNED_UP");
       }
     } else {
       this._initedFor = null;
-      this.setState({ cards: [], profile: null });
+      this.setState({ cards: [], profile: null, coverState: "closed" });
     }
   }
 
@@ -496,6 +526,7 @@ export default class JourneyDex extends React.Component<unknown, S> {
     window.removeEventListener("resize", this._onResize);
     (this._fitTimers || []).forEach(clearTimeout);
     if (this._ft) clearTimeout(this._ft);
+    if (this._coverT) clearTimeout(this._coverT);
     if (this._authSub) this._authSub.unsubscribe();
     try {
       if (this._recog) this._recog.stop();
@@ -527,15 +558,81 @@ export default class JourneyDex extends React.Component<unknown, S> {
     }
   }
 
-  flip(dir: string, spread: number, totalSpreads: number) {
+  // `page` is the 0-based index of the LEFT page in the open spread; each flip
+  // advances the spread by a single page (a sliding two-page window), so the
+  // visible page numbers step 1→2→3 rather than jumping by a whole leaf.
+  flip(dir: string, page: number, totalPages: number) {
     if (this.state.turning) return;
-    if (dir === "next" && spread >= totalSpreads - 1) return;
-    if (dir === "prev" && spread <= 0) return;
+    if (dir === "next" && page >= totalPages - 1) return;
+    if (dir === "prev" && page <= 0) return;
     this.setState({ turning: dir });
     if (this._ft) clearTimeout(this._ft);
     this._ft = setTimeout(() => {
-      this.setState({ spread: spread + (dir === "next" ? 1 : -1), turning: null, pageInput: null });
+      this.setState({ spread: page + (dir === "next" ? 1 : -1), turning: null, pageInput: null });
     }, 470);
+  }
+
+  // Tap the closed cover (or anywhere on the binder) to swing it open. The cover
+  // is a single page hinged at the spine; on open it rotates away while the whole
+  // spread slides from its centered single-page position to the centered two-page
+  // position — so the book physically opens and settles in the middle. After the
+  // motion finishes we drop into the normal open binder.
+  openBook = () => {
+    if (this.state.coverState !== "closed") return;
+    this.setState({ coverState: "opening" });
+    if (this._coverT) clearTimeout(this._coverT);
+    this._coverT = setTimeout(() => this.setState({ coverState: "open" }), 820);
+  };
+
+  // The front cover artwork, sized to fill its parent (one page). It's used both
+  // as the standalone closed book and as the face of the flipping cover-leaf, so
+  // the two line up exactly across the closed → opening transition.
+  renderCover() {
+    const quote = dailyAffirmation();
+    return (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          boxSizing: "border-box",
+          position: "relative",
+          overflow: "hidden",
+          borderRadius: "5px 14px 14px 5px",
+          background: "linear-gradient(140deg,#4a4234 0%,#3a342b 55%,#2f2a21 100%)",
+          border: "1.5px solid #29251b",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "14px",
+          padding: "38px 30px",
+          color: "#f3e7cb",
+        }}
+      >
+        {/* spine band + accent on the hinge (left) edge */}
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "16px", background: "linear-gradient(90deg,#2a251b,#3a342b)", borderRight: "1px solid rgba(214,178,110,.3)" }} />
+        <div style={{ position: "absolute", left: "21px", top: "18px", bottom: "18px", width: "3px", borderRadius: "2px", background: "linear-gradient(#d6b26e,#bb8b4e)", opacity: 0.5 }} />
+        {/* page edges on the right (the closed pages) */}
+        <div style={{ position: "absolute", right: 0, top: "9px", bottom: "9px", width: "6px", background: "repeating-linear-gradient(#efe6d2,#efe6d2 1px,#d9cfb6 1px,#d9cfb6 3px)" }} />
+        {/* gold inset frame */}
+        <div style={{ position: "absolute", top: "18px", bottom: "18px", left: "26px", right: "20px", border: "1.5px solid rgba(214,178,110,.4)", borderRadius: "9px", pointerEvents: "none" }} />
+
+        <div style={{ fontFamily: "'Caveat',cursive", fontSize: "21px", color: "#d6b26e", lineHeight: 1 }}>a binder of small wins</div>
+        <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: "38px", letterSpacing: "-.5px", color: "#f6ecd2", lineHeight: 1 }}>JourneyDex</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", color: "#bb8b4e", width: "66%", justifyContent: "center" }}>
+          <div style={{ flex: 1, height: "1px", background: "linear-gradient(90deg,transparent,#bb8b4e)" }} />
+          <span style={{ fontSize: "13px" }}>&#10022;</span>
+          <div style={{ flex: 1, height: "1px", background: "linear-gradient(90deg,#bb8b4e,transparent)" }} />
+        </div>
+        <div style={{ fontFamily: "'Space Mono',monospace", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#a98f5f" }}>today&apos;s affirmation</div>
+        <div style={{ fontFamily: "'Caveat',cursive", fontWeight: 600, fontSize: "26px", lineHeight: 1.28, color: "#f1e7cd", textAlign: "center", maxWidth: "280px" }}>
+          &ldquo;{quote}&rdquo;
+        </div>
+        <div style={{ marginTop: "6px", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: "12.5px", fontWeight: 600, color: "#cdba8e", animation: "coverHint 1.8s ease-in-out infinite" }}>
+          tap anywhere to open &#8594;
+        </div>
+      </div>
+    );
   }
 
   toggleFavId(id: string) {
@@ -685,25 +782,21 @@ export default class JourneyDex extends React.Component<unknown, S> {
       whiteSpace: "nowrap",
     };
 
-    // flipbook pagination
-    const PER_PAGE = 4,
-      PER_SPREAD = 8;
+    // flipbook pagination — `page` is the 0-based index of the LEFT page; the
+    // right page is the next one. Each flip slides the two-page window by one.
+    const PER_PAGE = 4;
     const totalPages = Math.max(1, Math.ceil(binderCards.length / PER_PAGE));
-    const totalSpreads = Math.max(1, Math.ceil(binderCards.length / PER_SPREAD));
-    const spread = Math.min(Math.max(0, st.spread), totalSpreads - 1);
-    const base = spread * PER_SPREAD;
-    const leftCards = binderCards.slice(base, base + PER_PAGE);
-    const rightCards = binderCards.slice(base + PER_PAGE, base + PER_SPREAD);
+    const page = Math.min(Math.max(0, st.spread), totalPages - 1);
     const gridStyle: React.CSSProperties = {
       display: "grid",
       gridTemplateColumns: "repeat(2, 172px)",
-      gridAutoRows: "236px",
+      gridAutoRows: "min-content",
+      alignItems: "start",
       gap: "18px 16px",
       justifyContent: "center",
       alignContent: "center",
     };
-    const leftNo = spread * 2 + 1,
-      rightNo = spread * 2 + 2;
+    const leftNo = page + 1;
     const arrowBtn = (disabled: boolean): React.CSSProperties => ({
       width: "46px",
       height: "46px",
@@ -718,39 +811,110 @@ export default class JourneyDex extends React.Component<unknown, S> {
       justifyContent: "center",
       boxShadow: disabled ? "none" : "0 4px 12px rgba(58,52,43,.10)",
     });
-    const leaf = st.turning;
-    const leafStyle: React.CSSProperties =
-      leaf === "next"
-        ? {
-            position: "absolute",
-            top: "11px",
-            bottom: "11px",
-            right: "11px",
-            width: "calc(50% - 12px)",
-            transformOrigin: "left center",
-            transformStyle: "preserve-3d",
-            animation: "leafNext .47s ease forwards",
-            background: "linear-gradient(100deg,#fdf9ef,#ece1c9)",
-            borderRadius: "3px 9px 9px 3px",
-            boxShadow: "0 16px 34px rgba(58,52,43,.24)",
-            zIndex: 6,
-            backfaceVisibility: "hidden",
-          }
-        : {
-            position: "absolute",
-            top: "11px",
-            bottom: "11px",
-            left: "11px",
-            width: "calc(50% - 12px)",
-            transformOrigin: "right center",
-            transformStyle: "preserve-3d",
-            animation: "leafPrev .47s ease forwards",
-            background: "linear-gradient(260deg,#fdf9ef,#ece1c9)",
-            borderRadius: "9px 3px 3px 9px",
-            boxShadow: "0 16px 34px rgba(58,52,43,.24)",
-            zIndex: 6,
-            backfaceVisibility: "hidden",
-          };
+    // --- page-flip rendering -------------------------------------------------
+    // A real two-faced leaf turns over the spine: its front shows the page you're
+    // leaving, its back shows the page you're turning to, and the destination
+    // spread sits statically underneath so it's revealed as the leaf lifts. The
+    // `turning` flag (set by flip()) drives the CSS rotation in both directions.
+    type BinderCell = (typeof binderCards)[number];
+    const cardCell = (c: BinderCell) => (
+      <div key={c.id} className="pos-card" style={{ position: "relative", width: "172px", cursor: "pointer" }} onClick={() => this.setState({ selectedId: c.id })}>
+        <button style={c.heartStyle} onClick={(e) => { e.stopPropagation(); this.toggleFavId(c.id); }}>{c.heartLabel}</button>
+        <Card card={c.card} size="sm" />
+      </div>
+    );
+    const pageEl = (cards: BinderCell[], pageNo: number, side: "left" | "right", extra?: React.CSSProperties) => {
+      const isLeft = side === "left";
+      const bindingStyle: React.CSSProperties = isLeft
+        ? { left: "-6px", borderRadius: "4px 0 0 4px" }
+        : { right: "-6px", borderRadius: "0 4px 4px 0" };
+      return (
+        <div
+          style={{
+            width: "404px",
+            height: "520px",
+            boxSizing: "border-box",
+            // Reserve a strip at the bottom so the vertically-centered card grid
+            // clears the absolute page number (which sits at bottom: 10px).
+            paddingBottom: "26px",
+            position: "relative",
+            background: "#fbf7ec",
+            borderRadius: isLeft ? "10px 4px 4px 10px" : "4px 10px 10px 4px",
+            boxShadow: isLeft ? "inset -18px 0 30px -20px rgba(58,52,43,.32)" : "inset 18px 0 30px -20px rgba(58,52,43,.32)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            ...extra,
+          }}
+        >
+          <div style={{ position: "absolute", top: "12px", bottom: "12px", width: "6px", background: "repeating-linear-gradient(#e6dbc2,#e6dbc2 1px,#f4edda 1px,#f4edda 3px)", ...bindingStyle }} />
+          {cards.length > 0 ? (
+            <div style={gridStyle}>{cards.map(cardCell)}</div>
+          ) : (
+            <div style={{ fontFamily: "'Caveat',cursive", fontSize: "27px", color: "#cfc6b3" }}>the end &middot; for now</div>
+          )}
+          <div style={{ position: "absolute", bottom: "10px", left: 0, right: 0, textAlign: "center", fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#bcb3a1" }}>{cards.length ? String(pageNo) : ""}</div>
+        </div>
+      );
+    };
+    // The open spread is a sliding window of two consecutive pages: the left page
+    // `p` and the right page `p + 1`. Flipping moves the window by one page.
+    const pageOf = (p: number) => binderCards.slice(p * PER_PAGE, p * PER_PAGE + PER_PAGE);
+    const pageWindow = (p: number) => ({
+      left: pageOf(p),
+      right: pageOf(p + 1),
+      leftNo: p + 1,
+      rightNo: p + 2,
+    });
+    const turning = st.turning;
+    const cur = pageWindow(page);
+    const target = turning === "next" ? page + 1 : turning === "prev" ? page - 1 : page;
+    const tgt = pageWindow(target);
+    // Static pages under the leaf: keep the page that isn't moving, and show the
+    // destination page on the side the leaf is peeling away from (revealed as it lifts).
+    const staticLeft = turning === "next" ? cur : tgt;
+    const staticRight = turning === "prev" ? cur : tgt;
+    // The flipping leaf — front = page you're leaving, back = page you're turning to.
+    const leafFront = turning === "next"
+      ? { cards: cur.right, no: cur.rightNo, side: "right" as const }
+      : { cards: cur.left, no: cur.leftNo, side: "left" as const };
+    const leafBack = turning === "next"
+      ? { cards: tgt.left, no: tgt.leftNo, side: "left" as const }
+      : { cards: tgt.right, no: tgt.rightNo, side: "right" as const };
+    const leafContainerStyle: React.CSSProperties = {
+      position: "absolute",
+      top: "11px",
+      bottom: "11px",
+      width: "calc(50% - 12px)",
+      transformStyle: "preserve-3d",
+      zIndex: 6,
+      ...(turning === "next"
+        ? { right: "11px", transformOrigin: "left center", animation: "leafNext .47s ease forwards" }
+        : { left: "11px", transformOrigin: "right center", animation: "leafPrev .47s ease forwards" }),
+    };
+    const leafFaceBase: React.CSSProperties = {
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      backfaceVisibility: "hidden",
+      overflow: "hidden",
+      boxShadow: "0 16px 34px rgba(58,52,43,.24)",
+    };
+    // The front-cover leaf occupies the right page slot and is hinged at the
+    // spine (its left edge). It swings open (coverOpen) while the spread slides
+    // to center (coverShift); backface-visibility hides it cleanly past edge-on.
+    const coverLeafStyle: React.CSSProperties = {
+      position: "absolute",
+      top: "11px",
+      bottom: "11px",
+      right: "11px",
+      width: "calc(50% - 12px)",
+      transformOrigin: "left center",
+      transformStyle: "preserve-3d",
+      zIndex: 30,
+      animation: "coverOpen .82s cubic-bezier(.45,.05,.2,1) forwards",
+    };
 
     // Balance + Share are self-contained components (./BalanceAndShare) that
     // derive their own counts/charts from the card array.
@@ -890,26 +1054,29 @@ export default class JourneyDex extends React.Component<unknown, S> {
           {/* BINDER */}
           {st.view === "binder" && (
             <section>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "10px" }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-                  <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: 0, color: "#352f27" }}>Your binder</h2>
-                  <span style={{ fontFamily: "'Space Mono',monospace", fontSize: "13px", color: "#a59c8c" }}>{binderCards.length} cards</span>
-                </div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
-                    {filterChips.map((chip) => (
-                      <button key={chip.k} style={chip.style} onClick={(e) => this.setState({ filter: e.currentTarget.dataset.k as string, spread: 0, turning: null, pageInput: null })} data-k={chip.k}>
-                        {chip.label}
-                      </button>
-                    ))}
+              {/* Binder controls appear only once the cover is open. */}
+              {st.coverState === "open" && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", marginBottom: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                    <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "21px", margin: 0, color: "#352f27" }}>Your binder</h2>
+                    <span style={{ fontFamily: "'Space Mono',monospace", fontSize: "13px", color: "#a59c8c" }}>{binderCards.length} cards</span>
                   </div>
-                  <button style={sortBtnStyle} onClick={() => this.setState({ sortDir: st.sortDir === "desc" ? "asc" : "desc", spread: 0, turning: null, pageInput: null })}>
-                    {st.sortDir === "desc" ? "Newest first ↓" : "Oldest first ↑"}
-                  </button>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "7px", flexWrap: "wrap" }}>
+                      {filterChips.map((chip) => (
+                        <button key={chip.k} style={chip.style} onClick={(e) => this.setState({ filter: e.currentTarget.dataset.k as string, spread: 0, turning: null, pageInput: null })} data-k={chip.k}>
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button style={sortBtnStyle} onClick={() => this.setState({ sortDir: st.sortDir === "desc" ? "asc" : "desc", spread: 0, turning: null, pageInput: null })}>
+                      {st.sortDir === "desc" ? "Newest first ↓" : "Oldest first ↑"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {binderCards.length === 0 && (
+              {st.coverState === "open" && binderCards.length === 0 && (
                 <div style={{ background: "#fbf7ec", border: "1.5px dashed #e2d8c2", borderRadius: "18px", padding: "64px 24px", textAlign: "center" }}>
                   <div style={{ fontSize: "30px", color: "#e0708a", marginBottom: "8px" }}>&#9825;</div>
                   <div style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: "18px", color: "#6b6356", marginBottom: "4px" }}>
@@ -921,77 +1088,90 @@ export default class JourneyDex extends React.Component<unknown, S> {
                 </div>
               )}
 
-              {binderCards.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
-                  <div ref={this.fitOuterRef} style={{ width: "100%", height: st.fitH + "px", overflow: "hidden", display: "flex", justifyContent: "center" }}>
-                    <div ref={this.bookRef} style={{ transform: "scale(" + st.fitScale + ")", transformOrigin: "top center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                      <div style={{ position: "relative", perspective: "2600px" }}>
-                        <div style={{ display: "flex", justifyContent: "center", background: "#ece2cb", border: "1.5px solid #dccfb1", borderRadius: "18px", padding: "13px", boxShadow: "0 26px 56px -14px rgba(58,52,43,.28), inset 0 1px 0 #f7efdc" }}>
-                          {/* LEFT PAGE */}
-                          <div style={{ width: "404px", height: "520px", position: "relative", background: "#fbf7ec", borderRadius: "10px 4px 4px 10px", boxShadow: "inset -18px 0 30px -20px rgba(58,52,43,.32)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div style={{ position: "absolute", left: "-6px", top: "12px", bottom: "12px", width: "6px", borderRadius: "4px 0 0 4px", background: "repeating-linear-gradient(#e6dbc2,#e6dbc2 1px,#f4edda 1px,#f4edda 3px)" }} />
-                            <div style={gridStyle}>
-                              {leftCards.map((c) => (
-                                <div key={c.id} className="pos-card" style={{ position: "relative", width: "172px", cursor: "pointer" }} onClick={() => this.setState({ selectedId: c.id })}>
-                                  <button style={c.heartStyle} onClick={(e) => { e.stopPropagation(); this.toggleFavId(c.id); }}>{c.heartLabel}</button>
-                                  <Card card={c.card} size="sm" />
-                                </div>
-                              ))}
+              {/* The book stage holds both the closed cover and the open binder.
+                  Tapping anywhere here (while closed) swings the cover open. */}
+              {(st.coverState !== "open" || binderCards.length > 0) && (
+                <div
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}
+                  onClick={st.coverState === "closed" ? this.openBook : undefined}
+                >
+                  <div ref={this.fitOuterRef} style={{ width: "100%", height: st.fitH + "px", overflow: "hidden", display: "flex", justifyContent: "center", position: "relative" }}>
+                    {/* OPEN BOOK — rendered from the moment opening starts (and while
+                        open). The inner shift wrapper slides the spread from the closed
+                        (centered single page) position to the centered two-page spread. */}
+                    {st.coverState !== "closed" && binderCards.length > 0 && (
+                      <div ref={this.bookRef} style={{ transform: "scale(" + st.fitScale + ")", transformOrigin: "top center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", ...(st.coverState === "opening" ? { animation: "coverShift .82s cubic-bezier(.45,.05,.2,1) forwards" } : undefined) }}>
+                          <div style={{ position: "relative", perspective: "2600px" }}>
+                            <div style={{ display: "flex", justifyContent: "center", background: "#ece2cb", border: "1.5px solid #dccfb1", borderRadius: "18px", padding: "13px", boxShadow: "0 26px 56px -14px rgba(58,52,43,.28), inset 0 1px 0 #f7efdc", ...(st.coverState === "opening" ? { animation: "coverRevealIn .28s ease both" } : undefined) }}>
+                              {/* LEFT PAGE */}
+                              {pageEl(staticLeft.left, staticLeft.leftNo, "left")}
+                              {/* SPINE */}
+                              <div style={{ width: "4px", background: "linear-gradient(90deg,rgba(58,52,43,.18),rgba(58,52,43,.04),rgba(58,52,43,.18))" }} />
+                              {/* RIGHT PAGE */}
+                              {pageEl(staticRight.right, staticRight.rightNo, "right")}
                             </div>
-                            <div style={{ position: "absolute", bottom: "10px", left: 0, right: 0, textAlign: "center", fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#bcb3a1" }}>{String(leftNo)}</div>
-                          </div>
-                          {/* SPINE */}
-                          <div style={{ width: "4px", background: "linear-gradient(90deg,rgba(58,52,43,.18),rgba(58,52,43,.04),rgba(58,52,43,.18))" }} />
-                          {/* RIGHT PAGE */}
-                          <div style={{ width: "404px", height: "520px", position: "relative", background: "#fbf7ec", borderRadius: "4px 10px 10px 4px", boxShadow: "inset 18px 0 30px -20px rgba(58,52,43,.32)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div style={{ position: "absolute", right: "-6px", top: "12px", bottom: "12px", width: "6px", borderRadius: "0 4px 4px 0", background: "repeating-linear-gradient(#e6dbc2,#e6dbc2 1px,#f4edda 1px,#f4edda 3px)" }} />
-                            {rightCards.length > 0 && (
-                              <div style={gridStyle}>
-                                {rightCards.map((c) => (
-                                  <div key={c.id} className="pos-card" style={{ position: "relative", width: "172px", cursor: "pointer" }} onClick={() => this.setState({ selectedId: c.id })}>
-                                    <button style={c.heartStyle} onClick={(e) => { e.stopPropagation(); this.toggleFavId(c.id); }}>{c.heartLabel}</button>
-                                    <Card card={c.card} size="sm" />
-                                  </div>
-                                ))}
+                            {/* FLIPPING LEAF — front = page you're leaving, back = page you're turning to */}
+                            {turning && (
+                              <div style={leafContainerStyle}>
+                                {pageEl(leafFront.cards, leafFront.no, leafFront.side, { ...leafFaceBase })}
+                                {pageEl(leafBack.cards, leafBack.no, leafBack.side, { ...leafFaceBase, transform: "rotateY(180deg)" })}
                               </div>
                             )}
-                            {rightCards.length === 0 && <div style={{ fontFamily: "'Caveat',cursive", fontSize: "27px", color: "#cfc6b3" }}>the end &middot; for now</div>}
-                            <div style={{ position: "absolute", bottom: "10px", left: 0, right: 0, textAlign: "center", fontFamily: "'Space Mono',monospace", fontSize: "12px", color: "#bcb3a1" }}>{rightCards.length ? String(rightNo) : ""}</div>
+                            {/* FRONT COVER LEAF — swings open around the spine while the
+                                spread slides to center underneath it. */}
+                            {st.coverState === "opening" && (
+                              <div style={coverLeafStyle}>
+                                <div style={{ position: "absolute", inset: 0, backfaceVisibility: "hidden", overflow: "hidden", borderRadius: "5px 14px 14px 5px", boxShadow: "0 18px 42px rgba(40,35,25,.42)" }}>
+                                  {this.renderCover()}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                        {st.turning && <div style={leafStyle} />}
-                      </div>
 
-                      {/* NAV */}
-                      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "18px", marginTop: "16px" }}>
-                        <button style={arrowBtn(spread <= 0)} onClick={() => this.flip("prev", spread, totalSpreads)}>&#8592;</button>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: "7px", fontFamily: "'Caveat',cursive", fontWeight: 600, fontSize: "23px", color: "#8a7a5c" }}>
-                          <span>Page</span>
-                          <input
-                            style={pageInputStyle}
-                            value={pageDisplayValue}
-                            onChange={(e) => this.setState({ pageInput: e.target.value })}
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              e.preventDefault();
-                              const raw = st.pageInput;
-                              const v = parseInt(raw as string, 10);
-                              if (raw != null && String(raw).trim() !== "" && !isNaN(v) && v >= 1 && v <= totalPages) {
-                                this.setState({ spread: Math.floor((v - 1) / 2), pageInput: null, turning: null });
-                              } else {
-                                this.setState({ pageInput: null });
-                              }
-                              (e.target as HTMLInputElement).blur();
-                            }}
-                            onBlur={() => { if (this.state.pageInput != null) this.setState({ pageInput: null }); }}
-                            inputMode="numeric"
-                            aria-label="Go to page"
-                          />
-                          <span>of {totalPages}</span>
+                          {/* NAV — only once fully open */}
+                          {st.coverState === "open" && (
+                            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "18px", marginTop: "16px" }}>
+                              <button style={arrowBtn(page <= 0)} onClick={() => this.flip("prev", page, totalPages)}>&#8592;</button>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: "7px", fontFamily: "'Caveat',cursive", fontWeight: 600, fontSize: "23px", color: "#8a7a5c" }}>
+                                <span>Page</span>
+                                <input
+                                  style={pageInputStyle}
+                                  value={pageDisplayValue}
+                                  onChange={(e) => this.setState({ pageInput: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") return;
+                                    e.preventDefault();
+                                    const raw = st.pageInput;
+                                    const v = parseInt(raw as string, 10);
+                                    if (raw != null && String(raw).trim() !== "" && !isNaN(v) && v >= 1 && v <= totalPages) {
+                                      this.setState({ spread: v - 1, pageInput: null, turning: null });
+                                    } else {
+                                      this.setState({ pageInput: null });
+                                    }
+                                    (e.target as HTMLInputElement).blur();
+                                  }}
+                                  onBlur={() => { if (this.state.pageInput != null) this.setState({ pageInput: null }); }}
+                                  inputMode="numeric"
+                                  aria-label="Go to page"
+                                />
+                                <span>of {totalPages}</span>
+                              </div>
+                              <button style={arrowBtn(page >= totalPages - 1)} onClick={() => this.flip("next", page, totalPages)}>&#8594;</button>
+                            </div>
+                          )}
                         </div>
-                        <button style={arrowBtn(spread >= totalSpreads - 1)} onClick={() => this.flip("next", spread, totalSpreads)}>&#8594;</button>
                       </div>
-                    </div>
+                    )}
+
+                    {/* CLOSED BOOK — a centered single page; tap anywhere to open it. */}
+                    {st.coverState === "closed" && (
+                      <div style={{ transform: "scale(" + st.fitScale + ")", transformOrigin: "top center" }}>
+                        <div style={{ width: "404px", height: "520px", cursor: "pointer", borderRadius: "5px 14px 14px 5px", boxShadow: "0 30px 60px -18px rgba(40,35,25,.5)" }}>
+                          {this.renderCover()}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
