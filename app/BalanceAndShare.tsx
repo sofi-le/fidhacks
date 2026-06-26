@@ -361,13 +361,13 @@ export function BalanceScreen({ cards = [], today }: { cards?: UiCard[]; today?:
   const sorted = [...TYPE_ORDER].sort((a, b) => counts[b] - counts[a]);
   const topType = sorted[0];
   const periodWord = period === "week" ? "this week" : "this month";
-  const mirror = `Most of your energy ${periodWord} went to ${TYPES[topType].label}. The shape below is the honest mirror.`;
+  const mirror = `${TYPES[topType].label} took the lead ${periodWord}.`;
 
   return (
     <section style={{ fontFamily: '"Hanken Grotesk",system-ui,sans-serif' }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
         <div>
-          <h2 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 21, margin: "0 0 3px", color: "#352f27" }}>Where your energy went</h2>
+          <h2 style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 21, margin: "0 0 3px", color: "#352f27" }}>Your journey, recapped</h2>
           <p style={{ margin: 0, fontSize: 14, color: "#857c6c", maxWidth: 380 }}>{mirror}</p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
